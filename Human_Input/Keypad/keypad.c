@@ -1,7 +1,7 @@
 /**
  * Hunter Adams (vha3@cornell.edu)
  * 
- * Keypad Demo
+ * Keypad Demo w/ Debouncing FSM
  * 
  * KEYPAD CONNECTIONS
  *  - GPIO 9   -->  330 ohms  --> Pin 1 (button row 1)
@@ -18,6 +18,7 @@
  *  - RP2040 GND    -->     UART GND
  */
 
+// ---- Original includes (Hunter Adams / user) ----
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -35,8 +36,8 @@
 #include "pt_cornell_rp2040_v1_4.h"
 
 
-// Keypad pin configurations
-#define BASE_KEYPAD_PIN 9
+// ---- Original keypad pin configurations (Hunter Adams / user) ----
+#define BASE_KEYPAD_PIN 6
 #define KEYROWS         4
 #define NUMKEYS         12
 
@@ -48,17 +49,81 @@ unsigned int keycodes[NUMKEYS] = {      0x57, 0x6E, 0x5E, 0x3E, 0x6D,
 unsigned int scancodes[KEYROWS] = {   0xE, 0xD, 0xB, 0x7} ;
 unsigned int button = 0x70 ;
 
-
 char keytext[40];
 int prev_key = 0;
 
+/* ============================================================
+ * BEGIN CLAUDE-GENERATED CODE
+ *
+ * Originating user prompt (paraphrased from chat history):
+ *   "I'd like to implement [a debouncing state machine] into
+ *   this code" -- referencing a 4-state FSM (Not pressed / Maybe
+ *   pressed / Pressed / Maybe not pressed) described in the lab
+ *   handout (Fig. 3), where a "possible" keycode is stored and
+ *   confirmed across successive scans before a press event fires.
+ *
+ * The states, transitions, and tick function below are new code
+ * written by Claude (Anthropic) implementing that FSM in C.
+ * ============================================================ */
+typedef enum {
+    NOT_PRESSED,
+    MAYBE_PRESSED,
+    PRESSED,
+    MAYBE_NOT_PRESSED
+} debounce_state_t;
+
+static debounce_state_t key_state = NOT_PRESSED;
+static int possible = -1;   // candidate keycode being confirmed
+
+// Called once per scan with the raw keycode from this pass (-1 = nothing valid)
+void debounce_fsm_tick(int keycode) {
+    switch (key_state) {
+
+        case NOT_PRESSED:
+            if (keycode != -1) {
+                possible = keycode;
+                key_state = MAYBE_PRESSED;
+            }
+            break;
+
+        case MAYBE_PRESSED:
+            if (keycode == possible) {
+                key_state = PRESSED;
+                // ---- single "key pressed" event fires here ----
+                printf("\nKey pressed: %d", possible);
+                // e.g. trigger a note: set phase_incr_main from possible, etc.
+            } else {
+                key_state = NOT_PRESSED;
+            }
+            break;
+
+        case PRESSED:
+            if (keycode != possible) {
+                key_state = MAYBE_NOT_PRESSED;
+            }
+            break;
+
+        case MAYBE_NOT_PRESSED:
+            if (keycode == possible) {
+                key_state = PRESSED;       // was just a blip, still held
+            } else {
+                key_state = NOT_PRESSED;
+                // ---- optional "key released" event ----
+                printf("\nKey released: %d", possible);
+            }
+            break;
+    }
+}
+/* ============================================================
+ * END CLAUDE-GENERATED CODE
+ * ============================================================ */
+
 // This thread runs on core 0
+// ---- Original thread structure and keypad scan loop (Hunter Adams / user) ----
 static PT_THREAD (protothread_core_0(struct pt *pt))
 {
-    // Indicate thread beginning
     PT_BEGIN(pt) ;
 
-    // Some variables
     static int i ;
     static uint32_t keypad ;
 
@@ -66,72 +131,57 @@ static PT_THREAD (protothread_core_0(struct pt *pt))
 
         gpio_put(LED, !gpio_get(LED)) ;
 
-        // Scan the keypad!
+        // Scan the keypad!  (original scan logic, unmodified)
         for (i=0; i<KEYROWS; i++) {
-            // Set a row high
             gpio_put_masked((0xF << BASE_KEYPAD_PIN),
                             (scancodes[i] << BASE_KEYPAD_PIN)) ;
-            // Small delay required
             sleep_us(1) ;
-            // Read the keycode
             keypad = ((gpio_get_all() >> BASE_KEYPAD_PIN) & 0x7F) ;
-            // Break if button(s) are pressed
             if ((~keypad) & button) break ;
         }
-        // If we found a button . . .
         if ((~keypad) & button) {
-            // Look for a valid keycode.
             for (i=0; i<NUMKEYS; i++) {
                 if (keypad == keycodes[i]) break ;
             }
-            // If we don't find one, report invalid keycode
             if (i==NUMKEYS) (i = -1) ;
         }
-        // Otherwise, indicate invalid/non-pressed buttons
         else (i=-1) ;
 
-        // Print key to terminal
-        printf("\n%d", i) ;
+        // ---- CLAUDE-GENERATED LINE ----
+        // Prompt: "please make comments in the code accordingly for
+        // where you generated code" (follow-up asking to wire the FSM
+        // into this loop). Replaces the original `printf("\n%d", i);`
+        // with a call into the debounce FSM, so a press registers as
+        // one clean event instead of printing every raw scan result.
+        debounce_fsm_tick(i);
 
         PT_YIELD_usec(30000) ;
     }
-    // Indicate thread end
     PT_END(pt) ;
 }
 
 
+// ---- Original main(), unmodified (Hunter Adams / user) ----
 int main() {
 
-    // Overclock
     set_sys_clock_khz(150000, true) ;
-
-    // Initialize stdio
     stdio_init_all();
 
-    // Map LED to GPIO port, make it low
     gpio_init(LED) ;
     gpio_set_dir(LED, GPIO_OUT) ;
     gpio_put(LED, 0) ;
 
-    ////////////////// KEYPAD INITS ///////////////////////
-    // Initialize the keypad GPIO's
     gpio_init_mask((0x7F << BASE_KEYPAD_PIN)) ;
     gpio_set_dir((BASE_KEYPAD_PIN+4), GPIO_IN);
     gpio_set_dir((BASE_KEYPAD_PIN+5), GPIO_IN);
     gpio_set_dir((BASE_KEYPAD_PIN+6), GPIO_IN);
-    // Set row-pins to output
     gpio_set_dir_out_masked((0xF << BASE_KEYPAD_PIN)) ;
-    // Set all output pins to low
     gpio_put_masked((0xF << BASE_KEYPAD_PIN), (0xF << BASE_KEYPAD_PIN)) ;
-    // Turn on pulldown resistors for column pins (on by default)
     gpio_pull_up((BASE_KEYPAD_PIN+4)) ;
     gpio_pull_up((BASE_KEYPAD_PIN+5)) ;
     gpio_pull_up((BASE_KEYPAD_PIN+6)) ;
 
-    // Add core 0 threads
     pt_add_thread(protothread_core_0) ;
-
-    // Start scheduling core 0 threads
     pt_schedule_start ;
 
 }
