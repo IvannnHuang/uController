@@ -45,10 +45,10 @@ uint16_t DAC_data ; // output value
 
 //SPI configurations
 #define PIN_MISO 4
-#define PIN_CS   5
-#define PIN_SCK  6
-#define PIN_MOSI 7
-#define SPI_PORT spi0
+#define PIN_CS   13
+#define PIN_SCK  14
+#define PIN_MOSI 15
+#define SPI_PORT spi1
 
 //GPIO for timing the ISR
 #define ISR_GPIO 2
