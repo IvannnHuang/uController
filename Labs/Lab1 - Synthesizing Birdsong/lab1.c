@@ -84,6 +84,11 @@ typedef enum {
 static debounce_state_t key_state = NOT_PRESSED;
 static int possible = -1;
 static int keypad_flag = 0;
+static int record_flag = 0;
+static int record_key[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+static int record_idx = 0;
+static float record_sound[10][100] = {0.0};  // 100 freq for 10 sec recording
+static int record_sound_idx[10] = 0;    // sound end idx for each recording
 
 //GPIO for timing the ISR
 #define ISR_GPIO 2
@@ -158,6 +163,13 @@ void debounce_fsm_tick(int keycode) {
             break;
 
         case PRESSED:
+            if (keycode == 11) {    // * pressed, wait for next bottom to start recording
+                record_flag = 1;
+            }
+            if (record_flag == 1 && keycode == possible) {  // start recording
+                record_key = possible;  // record record key
+                // Todo: code for freq recording
+            }
             if (keycode != possible) {  // key detected changed
                 key_state = MAYBE_NOT_PRESSED;
             }
