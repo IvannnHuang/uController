@@ -89,7 +89,7 @@ static int keypad_flag = 0;
 static int record_flag = 0;
 static int record_key[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 static int record_idx = 0;
-static float record_sound[9][1000] = {0.0};  // 100 freq for 10 sec recording
+static float record_sound[9][1000] = {{0.0}};  // 100 freq for 10 sec recording
 // static int record_sound_idx[10] = 0;    // sound end idx for each recording
 
 //GPIO for timing the ISR
@@ -111,8 +111,8 @@ static void alarm_irq(void) {
     // Reset the alarm register
     timer_hw->alarm[ALARM_NUM] = timer_hw->timerawl + DELAY ;
 
-	  // DDS phase and sine table lookup
-	  phase_accum_main += phase_incr_main  ;
+    // DDS phase and sine table lookup
+    phase_accum_main += phase_incr_main  ;
     DAC_data = (DAC_config_chan_B | ((sin_table[phase_accum_main>>24] + 2048) & 0xffff))  ;
 
     // Perform an SPI transaction
@@ -170,6 +170,7 @@ void debounce_fsm_tick(int keycode) {
             if (keycode != possible) {  // key detected changed
                 key_state = MAYBE_NOT_PRESSED;
             }
+            record_idx = possible;
             break;
 
         case MAYBE_NOT_PRESSED:
@@ -222,31 +223,33 @@ static PT_THREAD (protothread_key_debounce(struct pt *pt))
         //FSM update here
         debounce_fsm_tick(i);
 
-        
-        if (record_flag == 1 && key_state == PRESSED) {  // start recording
-            record_idx = i;  // record record key
-            printf("Record key: %d\n", i);
-        }
-
         PT_YIELD_usec(30000) ;
     }
     PT_END(pt) ;
 }
 
 // Record thread
-// static PT_THREAD (protothread_record(struct pt *pt))
-// {
-//     PT_BEGIN(pt);
+static PT_THREAD (protothread_record(struct pt *pt))
+{
+    PT_BEGIN(pt);
 
-//       while(1) {
-//        // TODO: code for freq recording
+      while(1) {
+       // TODO: code for freq recording
+        if(record_flag){
+            if (key_state == PRESSED) {  // start recording
+                printf("Record key: %d\n", record_idx);
+                // record_sound[record_idx] = adc_val;
+            }
+
+
+        }
         
 
-//         // Yield
-//         PT_YIELD_usec(100000) ;
-//       } // END WHILE(1)
-//       PT_END(pt);
-// }
+        // Yield
+        PT_YIELD_usec(100000) ;
+      } // END WHILE(1)
+      PT_END(pt);
+}
 
 int main() {
     // Initialize stdio
@@ -304,6 +307,7 @@ int main() {
     // === config threads ========================
     pt_add_thread(protothread_FoutInput);
     pt_add_thread(protothread_key_debounce);
+    pt_add_thread(protothread_record);
     
     // === initalize the scheduler ===============
     pt_schedule_start ;
