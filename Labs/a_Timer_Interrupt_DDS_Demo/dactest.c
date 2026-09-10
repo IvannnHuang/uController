@@ -174,26 +174,26 @@ static PT_THREAD (protothread_FoutInput(struct pt *pt))
         else if (!compose_playback_flag && playback_flag && playback_key != -1) {    // play recorded sound with corresponding key 
             for (i = 0; i < record_sound_idx[playback_key]; i++) {
                 phase_incr_main = ((int)record_sound[playback_key][i]*two32)/Fs;
-                printf("Playing back on key: %d, i: %d, freq: %f, len:%d\n", playback_key, i, record_sound[playback_key][i], record_sound_idx[playback_key]);
+                // printf("Playing back on key: %d, i: %d, freq: %f, len:%d\n", playback_key, i, record_sound[playback_key][i], record_sound_idx[playback_key]);
                 PT_YIELD_usec(playback_freq);
             }
             if (i >= record_sound_idx[playback_key]) {
-                printf("Playback finished key %d, i=%d, len=%d\n", playback_key, i, record_sound_idx[playback_key]);
+                // printf("Playback finished key %d, i=%d, len=%d\n", playback_key, i, record_sound_idx[playback_key]);
                 playback_flag = 0;
                 playback_key = -1;
             }
         } 
         else if (compose_playback_flag) {   // playback for song compose using record keys
-            printf("Compose playback start\n");
+            // printf("Compose playback start\n");
             for(k = 0; k < compose_key_seq_idx; k++) {
-                printf("Compose playing back on key: %d, len: %d\n", compose_key_seq[k], record_sound_idx[compose_key_seq[k]]);
+                // printf("Compose playing back on key: %d, len: %d\n", compose_key_seq[k], record_sound_idx[compose_key_seq[k]]);
                 for (i = 0; i < record_sound_idx[compose_key_seq[k]]; i++) {
                     phase_incr_main = ((int)record_sound[compose_key_seq[k]][i]*two32)/Fs;
                     PT_YIELD_usec(playback_freq);
                 }
             }
             compose_playback_flag = 0;
-            printf("Compose playing finished\n");
+            // printf("Compose playing finished\n");
         }
         else {
           phase_incr_main = 0;
@@ -217,7 +217,7 @@ void debounce_fsm_tick(int keycode) {
         case MAYBE_PRESSED:
             if (keycode == possible) {  // key press stable by current scan matched with first scan
                 key_state = PRESSED;
-                printf("\nKey pressed: %d", possible);
+                // printf("\nKey pressed: %d", possible);
             } else {
                 key_state = NOT_PRESSED;
             }
@@ -236,56 +236,56 @@ void debounce_fsm_tick(int keycode) {
             if (keycode == possible) {  
                 key_state = PRESSED;       
             } else {  // key release detected
-                printf("\nKey released: %d\n", possible);
+                // printf("\nKey released: %d\n", possible);
                 if (possible == 0) {
                     compose_flag = 0;
                     record_flag = 0;
                     keypad_flag = !keypad_flag;
-                    printf("play mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
+                    // printf("play mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                 }
                 else if (possible == 10) {
                     compose_flag = 0;
                     keypad_flag = 0;
                     record_flag = !record_flag;
                     recording_key = -1;
-                    printf("record mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
+                    // printf("record mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                 }
                 else if (record_flag && possible != 0 && possible != 11) {
                     record_flag = 0;
                     recording_key = -1;
-                    printf("Record end, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
+                    // printf("Record end, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                 } 
                 else if (!compose_flag && !record_flag && possible != 10 && possible != 0 && possible != 11 && possible != -1) {
                     playback_flag = 1;
                     playback_key = possible;
-                    printf("Playback pressed, key: %d\n", possible);
+                    // printf("Playback pressed, key: %d\n", possible);
                 }
                 else if (possible == 11) {
                     record_flag = 0;
                     keypad_flag = 0;
                     compose_flag = !compose_flag;
-                    printf("Compose mode toggled, compose_flag: %d\n", compose_flag);
+                    // printf("Compose mode toggled, compose_flag: %d\n", compose_flag);
                     if (!compose_playback_flag && compose_key_seq_idx != 0) {
                         compose_playback_flag = 1;
-                        printf("Compose finished, sequence (%d keys): ", compose_key_seq_idx);
-                        for (int j = 0; j < compose_key_seq_idx; j++) {
-                            printf("%d ", compose_key_seq[j]);
-                        }
-                        printf("\nPlayback start, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
+                        // printf("Compose finished, sequence (%d keys): ", compose_key_seq_idx);
+                        // for (int j = 0; j < compose_key_seq_idx; j++) {
+                            // printf("%d ", compose_key_seq[j]);
+                        // }
+                        // printf("\nPlayback start, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                     }
                     else {
                         compose_key_seq_idx = 0;
-                        printf("Compose start");
+                        // printf("Compose start");
                     }
                 } else if(compose_flag && possible != 11 && possible != 0 && possible != 10) {
                     if (compose_key_seq_idx >= compose_length) {
                         compose_flag = !compose_flag;
-                        printf("Compose sequence max length reached: %d\n", compose_length);
+                        // printf("Compose sequence max length reached: %d\n", compose_length);
                     }
                     else {
                         compose_key_seq[compose_key_seq_idx] = possible;
                         compose_key_seq_idx++;
-                        printf("Compose key sequence added: %d\n", possible);
+                        // printf("Compose key sequence added: %d\n", possible);
                     }
                 }
 
@@ -343,13 +343,13 @@ static PT_THREAD (protothread_record(struct pt *pt)){
             record_sound_idx[k] = 0;   
         }
         if (record_sound_idx[record_idx] >= record_length) {  // record max length reached 
-            printf("Record key: %d Max length recorded, end record\n", record_idx);
+            // printf("Record key: %d Max length recorded, end record\n", record_idx);
             record_flag = 0;
         }
         else {
             record_sound[record_idx][record_sound_idx[record_idx]] = freq_val;   // record freq continuously
             record_sound_idx[record_idx]++;
-            printf("Record key: %d; current sound freq: %f\n", record_idx, freq_val);
+            // printf("Record key: %d; current sound freq: %f\n", record_idx, freq_val);
         }
     }
     PT_YIELD_usec(record_freq);
