@@ -102,7 +102,7 @@ static int keypad_flag = 1;
 static unsigned int record_flag = 0;
 static int record_key[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 static int record_idx = 0;
-static int record_idx_clear = 0;
+static int recording_key = -1;   
 static float record_sound[10][record_length] = {0.0};  // 100 freq for 10 sec recording
 static int record_sound_idx[10] = {0};    // record end idx for each recording
 
@@ -241,18 +241,19 @@ void debounce_fsm_tick(int keycode) {
                     compose_flag = 0;
                     record_flag = 0;
                     keypad_flag = !keypad_flag;
-                    printf("play mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, record_idx_clear);
+                    printf("play mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                 }
                 else if (possible == 10) {
                     compose_flag = 0;
                     keypad_flag = 0;
                     record_flag = !record_flag;
-                    record_idx_clear = 1;
-                    printf("record mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, record_idx_clear);
+                    recording_key = -1;
+                    printf("record mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                 }
                 else if (record_flag && possible != 0 && possible != 11) {
                     record_flag = 0;
-                    printf("Record end, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, record_idx_clear);
+                    recording_key = -1;
+                    printf("Record end, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                 } 
                 else if (!compose_flag && !record_flag && possible != 10 && possible != 0 && possible != 11 && possible != -1) {
                     playback_flag = 1;
@@ -270,7 +271,7 @@ void debounce_fsm_tick(int keycode) {
                         for (int j = 0; j < compose_key_seq_idx; j++) {
                             printf("%d ", compose_key_seq[j]);
                         }
-                        printf("\nPlayback start, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, record_idx_clear);
+                        printf("\nPlayback start, keypad_flag: %d, record_flag: %d, compose_flag: %d, record_clear: %d\n", keypad_flag, record_flag, compose_flag, recording_key);
                     }
                     else {
                         compose_key_seq_idx = 0;
@@ -330,23 +331,25 @@ static PT_THREAD (protothread_key_debounce(struct pt *pt))
 // Record thread
 static PT_THREAD (protothread_record(struct pt *pt)){
    PT_BEGIN(pt);
+
+   static int k;
    
    while(1) {
-    if (record_flag) {
-        if (key_state == PRESSED && possible != 10 && possible != 0 && possible != 11) {
-            if (record_idx_clear) {
-                record_sound_idx[record_idx] = 0;
-                record_idx_clear = 0;
-            }
-            if (record_sound_idx[record_idx] >= record_length) {  // record max length reached 
-                printf("Record key: %d Max length recorded, end record\n", record_idx);
-                record_flag = 0;
-            }
-            else {
-                record_sound[record_idx][record_sound_idx[record_idx]] = freq_val;   // record freq continuously
-                record_sound_idx[record_idx]++;
-                printf("Record key: %d; current sound freq: %f\n", record_idx, freq_val);
-            }
+    if (record_flag && key_state == PRESSED && possible != 10 && possible != 0 && possible != 11 && possible != -1) {
+        k = possible;
+
+        if (recording_key != k) {      
+            recording_key = k;
+            record_sound_idx[k] = 0;   
+        }
+        if (record_sound_idx[record_idx] >= record_length) {  // record max length reached 
+            printf("Record key: %d Max length recorded, end record\n", record_idx);
+            record_flag = 0;
+        }
+        else {
+            record_sound[record_idx][record_sound_idx[record_idx]] = freq_val;   // record freq continuously
+            record_sound_idx[record_idx]++;
+            printf("Record key: %d; current sound freq: %f\n", record_idx, freq_val);
         }
     }
     PT_YIELD_usec(record_freq);
