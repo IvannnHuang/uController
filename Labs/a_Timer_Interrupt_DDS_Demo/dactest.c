@@ -64,6 +64,7 @@ uint16_t DAC_data ; // output value
 #define BASE_KEYPAD_PIN 6
 #define KEYROWS         4
 #define NUMKEYS         12
+#define record_length   100
 
 unsigned int keycodes[NUMKEYS] = {      0x57, 0x6E, 0x5E, 0x3E, 0x6D,
                                         0x5D, 0x3D, 0x6B, 0x5B, 0x3B,
@@ -84,13 +85,14 @@ typedef enum {
 static debounce_state_t key_state = NOT_PRESSED;
 static int possible = -1;
 static int keypad_flag = 0;
-
-// Recording
-static int record_flag = 0;
+static unsigned int record_flag = 0;
 static int record_key[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 static int record_idx = 0;
-static float record_sound[9][1000] = {{0.0}};  // 100 freq for 10 sec recording
-// static int record_sound_idx[10] = 0;    // sound end idx for each recording
+static int record_idx_clear = 0;
+static float record_sound[10][record_length] = {0.0};  // 100 freq for 10 sec recording
+static int record_sound_idx[10] = {0};    // sound end idx for each recording
+static int playback_flag = 0;
+static int playback_key = -1;
 
 //GPIO for timing the ISR
 #define ISR_GPIO 2
@@ -123,31 +125,43 @@ static void alarm_irq(void) {
 
 }
 
-// ADC potentiometer thread
 static PT_THREAD (protothread_FoutInput(struct pt *pt))
 {
     PT_BEGIN(pt);
 
-      while(1) {
+    static unsigned int i;
+
+    while(1) {
         // Read the ADC
         adc_val = adc_read() * 2.5;     // normalize to range 0 - 10k
 
         // Print the value
-        if (keypad_flag) {
+        if (keypad_flag || record_flag) {      // key 0 pressed to play current sound controlled by potentiometer
         //   printf("ADC value: %f\n", adc_val) ;
           phase_incr_main = ((int)adc_val*two32)/Fs  ; // update the phase increment
+        }
+        else if (playback_flag && playback_key != -1) {    // play recorded sound with corresponding key 
+            for (i = 0; i < record_sound_idx[playback_key]; i++) {
+                phase_incr_main = ((int)record_sound[playback_key][i]*two32)/Fs;
+                printf("Playing back on key: %d, i: %d, freq: %f, len:%d\n", playback_key, i, record_sound[playback_key][i], record_sound_idx[playback_key]);
+                PT_YIELD_usec(10000) ;
+            }
+            if (i >= record_sound_idx[playback_key]) {
+                printf("Playback finished key %d, i=%d, len=%d\n", playback_key, i, record_sound_idx[playback_key]);
+                playback_flag = 0;
+                playback_key = -1;
+            }
         }
         else {
           phase_incr_main = 0;
         }
 
         // Yield
-        PT_YIELD_usec(10000) ; // adjusts ADC sample rate
+        PT_YIELD_usec(10000) ;
       } // END WHILE(1)
       PT_END(pt);
 }
 
-// Debounce FSM helper function
 void debounce_fsm_tick(int keycode) {
     switch (key_state) {
         case NOT_PRESSED:
@@ -155,6 +169,7 @@ void debounce_fsm_tick(int keycode) {
                 possible = keycode;
                 key_state = MAYBE_PRESSED;
             }
+            record_idx = -1;
             break;
 
         case MAYBE_PRESSED:
@@ -166,7 +181,7 @@ void debounce_fsm_tick(int keycode) {
             }
             break;
 
-        case PRESSED:
+        case PRESSED:  
             if (keycode != possible) {  // key detected changed
                 key_state = MAYBE_NOT_PRESSED;
             }
@@ -174,27 +189,35 @@ void debounce_fsm_tick(int keycode) {
             break;
 
         case MAYBE_NOT_PRESSED:
-            if (keycode == possible) { 
-                key_state = PRESSED;  
-            } else { // key release detected
+            if (keycode == possible) {  
+                key_state = PRESSED;       
+            } else {  // key release detected
                 printf("\nKey released: %d\n", possible);
-
                 if (possible == 0) {
-                    keypad_flag = ~keypad_flag;
+                    keypad_flag = !keypad_flag;
+                    record_flag = 0;
                     printf("play mode toggled\n");
                 }
-                if (possible == 10) {
-                    record_flag = ~record_flag;
-                    printf("record mode toggled\n");
+                else if (possible == 10) {
+                    record_flag = !record_flag;
+                    record_idx_clear = 1;
+                    printf("record mode toggled, record_flag: %d\n", record_flag);
                 }
-
+                else if (record_flag && possible != 10) {
+                    record_flag = 0;
+                    printf("Record end, record_flag: %d, record length: %d\n", record_flag, record_sound_idx[record_idx]);
+                } 
+                else if (!record_flag && possible != 10 && possible != 0 && possible != 11 && possible != -1) {
+                    playback_flag = 1;
+                    playback_key = possible;
+                    printf("Playback pressed, key: %d\n", possible);
+                }
                 key_state = NOT_PRESSED;
             }
             break;
     }
 }
 
-// Keypad thread
 static PT_THREAD (protothread_key_debounce(struct pt *pt))
 {
     PT_BEGIN(pt) ;
@@ -229,26 +252,30 @@ static PT_THREAD (protothread_key_debounce(struct pt *pt))
 }
 
 // Record thread
-static PT_THREAD (protothread_record(struct pt *pt))
-{
-    PT_BEGIN(pt);
-
-      while(1) {
-       // TODO: code for freq recording
-        if(record_flag){
-            if (key_state == PRESSED) {  // start recording
-                printf("Record key: %d\n", record_idx);
-                // record_sound[record_idx] = adc_val;
+static PT_THREAD (protothread_record(struct pt *pt)){
+   PT_BEGIN(pt);
+   
+   while(1) {
+    if (record_flag) {
+        if (key_state == PRESSED || key_state == MAYBE_NOT_PRESSED) {
+            if (record_idx_clear && record_sound_idx[record_idx] != 0) {
+                record_sound_idx[record_idx] = 0;
+                record_idx_clear = 0;
             }
-
-
+            else if (record_sound_idx[record_idx] > record_length) {  // record max length reached 
+                printf("Record key: %d Max length recorded, end record\n", record_idx);
+                record_flag = 0;
+            }
+            else {
+                record_sound[record_idx][record_sound_idx[record_idx]] = adc_val;   // record freq continuously
+                record_sound_idx[record_idx]++;
+                printf("Record key: %d; current sound freq: %f\n", record_idx, adc_val);
+            }
         }
-        
-
-        // Yield
-        PT_YIELD_usec(100000) ;
-      } // END WHILE(1)
-      PT_END(pt);
+    }
+    PT_YIELD_usec(100000);
+   }
+   PT_END(pt);
 }
 
 int main() {
