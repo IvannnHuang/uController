@@ -38,6 +38,8 @@
 #define DELAY 20 // 1/Fs (in microseconds)
 // the DDS units:
 volatile float adc_val;
+volatile float freq_val;
+volatile float vol_val;
 volatile unsigned int phase_accum_main;
 // volatile unsigned int phase_incr_main = (800*two32)/Fs ;
 volatile unsigned int phase_incr_main;
@@ -60,6 +62,10 @@ uint16_t DAC_data ; // output value
 #define ADC_PIN 26
 #define ADC_MUX 0
 
+// Volumn toggle switch GPIO
+#define V_SWITCH_1 16
+#define V_SWITCH_2 17
+
 // Keypad config
 #define BASE_KEYPAD_PIN 6
 #define KEYROWS         4
@@ -68,7 +74,7 @@ uint16_t DAC_data ; // output value
 // Record config
 #define record_length   1000
 #define record_freq     10000
-#define playback_freq   10000
+#define playback_freq   1000
 
 // Compose config
 #define compose_length  100
@@ -91,7 +97,7 @@ typedef enum {
 
 static debounce_state_t key_state = NOT_PRESSED;
 static int possible = -1;
-static int keypad_flag = 0;
+static int keypad_flag = 1;
 
 static unsigned int record_flag = 0;
 static int record_key[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -106,7 +112,9 @@ static int playback_key = -1;
 static unsigned int compose_flag = 0;
 static int compose_key_seq[compose_length] = {0};   
 static int compose_key_seq_idx = 0; 
-static int compose_playback_flag = 0;  
+static int compose_playback_flag = 0;
+
+static float volume_scale = 1.0;
 
 //GPIO for timing the ISR
 #define ISR_GPIO 2
@@ -129,7 +137,7 @@ static void alarm_irq(void) {
 
     // DDS phase and sine table lookup
     phase_accum_main += phase_incr_main  ;
-    DAC_data = (DAC_config_chan_B | ((sin_table[phase_accum_main>>24] + 2048) & 0xffff))  ;
+    DAC_data = (DAC_config_chan_B | (((uint16_t)(sin_table[phase_accum_main>>24]*vol_val) + 2048) & 0xffff))  ;
 
     // Perform an SPI transaction
     spi_write16_blocking(SPI_PORT, &DAC_data, 1) ;
@@ -139,6 +147,7 @@ static void alarm_irq(void) {
 
 }
 
+// ADC Potentiometer thread
 static PT_THREAD (protothread_FoutInput(struct pt *pt))
 {
     PT_BEGIN(pt);
@@ -147,13 +156,20 @@ static PT_THREAD (protothread_FoutInput(struct pt *pt))
     static unsigned int k;
 
     while(1) {
-        // Read the ADC
-        adc_val = adc_read() * 2.5;     // normalize to range 0 - 10k
+
+        adc_val = adc_read();
+        if(!gpio_get(V_SWITCH_1) && gpio_get(V_SWITCH_2)) {
+            vol_val = adc_val / 4096; // normalize to range 0.0 - 1.0
+            // printf("adc_out: %d, vol scale: %f\n", adc_val, vol_val);
+        }
+        else if (!gpio_get(V_SWITCH_2) && gpio_get(V_SWITCH_1)){
+            freq_val = adc_val * 2.5;     // normalize to range 0 - 10k
+            // printf("adc_out: %d, freq scale: %f\n", adc_val, freq_val);
+        }
 
         // Print the value
         if (keypad_flag || record_flag) {      // key 0 pressed to play current sound controlled by potentiometer
-        //   printf("ADC value: %f\n", adc_val) ;
-          phase_incr_main = ((int)adc_val*two32)/Fs  ; // update the phase increment
+            phase_incr_main = ((int)freq_val*two32)/Fs  ; // update the phase increment
         }
         else if (!compose_playback_flag && playback_flag && playback_key != -1) {    // play recorded sound with corresponding key 
             for (i = 0; i < record_sound_idx[playback_key]; i++) {
@@ -278,8 +294,6 @@ void debounce_fsm_tick(int keycode) {
     }
 }
 
-
-
 static PT_THREAD (protothread_key_debounce(struct pt *pt))
 {
     PT_BEGIN(pt) ;
@@ -329,9 +343,9 @@ static PT_THREAD (protothread_record(struct pt *pt)){
                 record_flag = 0;
             }
             else {
-                record_sound[record_idx][record_sound_idx[record_idx]] = adc_val;   // record freq continuously
+                record_sound[record_idx][record_sound_idx[record_idx]] = freq_val;   // record freq continuously
                 record_sound_idx[record_idx]++;
-                printf("Record key: %d; current sound freq: %f\n", record_idx, adc_val);
+                printf("Record key: %d; current sound freq: %f\n", record_idx, freq_val);
             }
         }
     }
@@ -354,6 +368,14 @@ int main() {
     adc_init() ;
     adc_gpio_init(ADC_PIN) ;
     adc_select_input(ADC_MUX) ;
+
+    // Setup volumn switch GPIO
+    gpio_init(V_SWITCH_1);
+    gpio_init(V_SWITCH_2);
+    gpio_set_dir(V_SWITCH_1, GPIO_IN);
+    gpio_set_dir(V_SWITCH_2, GPIO_IN);
+    gpio_pull_up(V_SWITCH_1);
+    gpio_pull_up(V_SWITCH_2); 
 
     // Setup the ISR-timing GPIO
     gpio_init(ISR_GPIO) ;
@@ -381,6 +403,7 @@ int main() {
    	// scaled to produce values between 0 and 4096
     int ii;
     for (ii = 0; ii < sine_table_size; ii++){
+        
          sin_table[ii] = (int)(2047*sin((float)ii*6.283/(float)sine_table_size));
     }
 
