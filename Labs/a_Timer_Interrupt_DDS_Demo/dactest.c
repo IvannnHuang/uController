@@ -176,6 +176,7 @@ static PT_THREAD (protothread_FoutInput(struct pt *pt))
                     PT_YIELD_usec(playback_freq);
                 }
             }
+            compose_playback_flag = 0;
             printf("Compose playing finished\n");
         }
         else {
