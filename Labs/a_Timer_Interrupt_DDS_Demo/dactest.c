@@ -158,11 +158,11 @@ static PT_THREAD (protothread_FoutInput(struct pt *pt))
     while(1) {
 
         adc_val = adc_read();
-        if(!gpio_get(V_SWITCH_1) && gpio_get(V_SWITCH_2)) {
+        if(gpio_get(V_SWITCH_1) && !gpio_get(V_SWITCH_2)) {
             vol_val = adc_val / 4096; // normalize to range 0.0 - 1.0
             // printf("adc_out: %d, vol scale: %f\n", adc_val, vol_val);
         }
-        else if (!gpio_get(V_SWITCH_2) && gpio_get(V_SWITCH_1)){
+        else if (gpio_get(V_SWITCH_2) && !gpio_get(V_SWITCH_1)){
             freq_val = adc_val * 2.5;     // normalize to range 0 - 10k
             // printf("adc_out: %d, freq scale: %f\n", adc_val, freq_val);
         }
@@ -242,18 +242,18 @@ void debounce_fsm_tick(int keycode) {
                     compose_flag = 0;
                     record_flag = 0;
                     keypad_flag = !keypad_flag;
-                    printf("play mode toggled\n");
+                    printf("play mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d\n", keypad_flag, record_flag, compose_flag);
                 }
                 else if (possible == 10) {
                     compose_flag = 0;
                     keypad_flag = 0;
                     record_flag = !record_flag;
                     record_idx_clear = 1;
-                    printf("record mode toggled, record_flag: %d\n", record_flag);
+                    printf("record mode toggled, keypad_flag: %d, record_flag: %d, compose_flag: %d\n", keypad_flag, record_flag, compose_flag);
                 }
-                else if (record_flag && possible != 10) {
+                else if (record_flag && possible != 0 && possible != 11) {
                     record_flag = 0;
-                    printf("Record end, record_flag: %d, record length: %d\n", record_flag, record_sound_idx[record_idx]);
+                    printf("Record end, keypad_flag: %d, record_flag: %d, compose_flag: %d\n", keypad_flag, record_flag, compose_flag);
                 } 
                 else if (!compose_flag && !record_flag && possible != 10 && possible != 0 && possible != 11 && possible != -1) {
                     playback_flag = 1;
@@ -271,7 +271,7 @@ void debounce_fsm_tick(int keycode) {
                         for (int j = 0; j < compose_key_seq_idx; j++) {
                             printf("%d ", compose_key_seq[j]);
                         }
-                        printf(", playback start\n");
+                        printf("\nPlayback start, keypad_flag: %d, record_flag: %d, compose_flag: %d\n", keypad_flag, record_flag, compose_flag);
                     }
                     else {
                         compose_key_seq_idx = 0;
@@ -333,8 +333,8 @@ static PT_THREAD (protothread_record(struct pt *pt)){
    PT_BEGIN(pt);
    
    while(1) {
-    if (record_flag) {
-        if (key_state == PRESSED) {
+    if (record_flag && !keypad_flag && !compose_flag) {
+        if (key_state == PRESSED && possible != 10 && possible != 0 && possible != 11) {
             if (record_idx_clear) {
                 record_sound_idx[record_idx] = 0;
                 record_idx_clear = 0;
