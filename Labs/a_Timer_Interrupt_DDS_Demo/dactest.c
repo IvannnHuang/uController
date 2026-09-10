@@ -64,7 +64,11 @@ uint16_t DAC_data ; // output value
 #define BASE_KEYPAD_PIN 6
 #define KEYROWS         4
 #define NUMKEYS         12
+
+// Record config
 #define record_length   100
+#define record_freq     10000
+#define playback_freq   10000
 
 unsigned int keycodes[NUMKEYS] = {      0x57, 0x6E, 0x5E, 0x3E, 0x6D,
                                         0x5D, 0x3D, 0x6B, 0x5B, 0x3B,
@@ -144,7 +148,7 @@ static PT_THREAD (protothread_FoutInput(struct pt *pt))
             for (i = 0; i < record_sound_idx[playback_key]; i++) {
                 phase_incr_main = ((int)record_sound[playback_key][i]*two32)/Fs;
                 printf("Playing back on key: %d, i: %d, freq: %f, len:%d\n", playback_key, i, record_sound[playback_key][i], record_sound_idx[playback_key]);
-                PT_YIELD_usec(10000) ;
+                PT_YIELD_usec(playback_freq) ;
             }
             if (i >= record_sound_idx[playback_key]) {
                 printf("Playback finished key %d, i=%d, len=%d\n", playback_key, i, record_sound_idx[playback_key]);
@@ -157,7 +161,7 @@ static PT_THREAD (protothread_FoutInput(struct pt *pt))
         }
 
         // Yield
-        PT_YIELD_usec(10000) ;
+        PT_YIELD_usec(playback_freq) ;
       } // END WHILE(1)
       PT_END(pt);
 }
@@ -273,7 +277,7 @@ static PT_THREAD (protothread_record(struct pt *pt)){
             }
         }
     }
-    PT_YIELD_usec(100000);
+    PT_YIELD_usec(record_freq);
    }
    PT_END(pt);
 }
