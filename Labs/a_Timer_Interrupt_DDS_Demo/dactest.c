@@ -11,6 +11,7 @@
    GPIO 6 (pin 9) SCK/spi0_sclk
    GPIO 7 (pin 10) MOSI/spi0_tx
    GPIO 2 (pin 4) GPIO output for timing ISR
+   GPIO 3 (pin 5) !LDAC
    3.3v (pin 36) -> VCC on DAC 
    GND (pin 3)  -> GND on DAC 
  */
@@ -55,6 +56,7 @@ uint16_t DAC_data ; // output value
 
 //SPI configurations
 #define PIN_MISO 4
+#define LDAC     5
 #define PIN_CS   13
 #define PIN_SCK  14
 #define PIN_MOSI 15
@@ -384,6 +386,11 @@ int main() {
     gpio_init(ISR_GPIO) ;
     gpio_set_dir(ISR_GPIO, GPIO_OUT);
     gpio_put(ISR_GPIO, 0) ;
+
+    // MAP LDAC to GPIO
+    gpio_init(LDAC);
+    gpio_set_dir(LDAC, GPIO_OUT);
+    gpio_put(LDAC, 0);
 
     // Map SPI signals to GPIO ports
     gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
