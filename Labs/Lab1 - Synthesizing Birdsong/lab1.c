@@ -15,76 +15,88 @@
    GND (pin 3)  -> GND on DAC 
  */
 
-#include <stdio.h>
-#include <math.h>
-#include <string.h>
-#include "stdlib.h"
-#include "pico/stdlib.h"
-#include "hardware/timer.h"
-#include "hardware/irq.h"
-#include "hardware/spi.h"
-#include "hardware/adc.h"
-#include "hardware/gpio.h"
-#include "pt_cornell_rp2040_v1_4.h"
+// ============== include libraries ==========================
+#include <stdio.h>                      // used for printf
+#include <math.h>                       // used for the sine func
+#include <string.h>                     // string stuff
+#include "stdlib.h"                     // always good to have
+#include "pico/stdlib.h"                // Pico SDK added for GPIO and timing
+#include "hardware/timer.h"             //ISR for DDS
+#include "hardware/irq.h"               // IRQ 
+#include "hardware/spi.h"               // SPI stuff to send to DAC
+#include "hardware/adc.h"               // ADC stuff to read from potentiometer
+#include "hardware/gpio.h"              // GPIO stuff to read from keypad
+#include "pt_cornell_rp2040_v1_4.h"     // pt stands for "protothreads"
+// ==============end libraries ==========================
 
-
-// Low-level alarm infrastructure we'll be using
-#define ALARM_NUM 0
+// Low-level alarm 0 for the ISR
+// ISR = Interrupt Service Routine
+#define ALARM_NUM 0  
 #define ALARM_IRQ timer_hardware_alarm_get_irq_num(timer_hw, ALARM_NUM)
 
 //DDS parameters
-#define two32 4294967296.0 // 2^32 
-#define Fs 50000
-#define DELAY 20 // 1/Fs (in microseconds)
+#define two32 4294967296.0  // 2^32 as a constant for phase increment calculations
+#define Fs 50000            // Sampling frequency (Hz)
+#define DELAY 20            // 1/Fs (in microseconds)
+
 // the DDS units:
 volatile float adc_val;
+// 32 bit accumulator (Note: overflows --> wrap back to 0)
 volatile unsigned int phase_accum_main;
-// volatile unsigned int phase_incr_main = (800*two32)/Fs ;
+// freq*two32/Fs = phase increment assigned later 
 volatile unsigned int phase_incr_main;
 
-// SPI data
+// SPI data out
 uint16_t DAC_data ; // output value
 
-//DAC parameters
+// DAC parameters
 // A-channel, 1x, active
 #define DAC_config_chan_A 0b0011000000000000
 // B-channel, 1x, active
 #define DAC_config_chan_B 0b1011000000000000
 
-//SPI configurations
+//SPI configurations (GPIO pins)
 #define PIN_MISO 4
 #define PIN_CS   13
 #define PIN_SCK  14
 #define PIN_MOSI 15
-#define SPI_PORT spi1
+#define SPI_PORT spi1 // set as SPI channel 1
 #define ADC_PIN 26
 #define ADC_MUX 0
 
 // Keypad config
-#define BASE_KEYPAD_PIN 6
-#define KEYROWS         4
-#define NUMKEYS         12
+#define BASE_KEYPAD_PIN 6   // base pin to add through GPIO 6, 7, 8, 9, 10, 11, 12
+#define KEYROWS         4   // number of rows in the keypad
+#define NUMKEYS         12  // number of keys in the keypad
 
+// Keypad legend:
+// 0x6E = 1 ; // 0x5E = 2 ; // 0x3E = 3
+// 0x6D = 4 ; // 0x5D = 5 ; // 0x3D = 6
+// 0x6B = 7 ; // 0x5B = 8 ; // 0x3B = 9
+// 0x67 = * ; // 0x57 = 0 ; // 0x37 = #
 unsigned int keycodes[NUMKEYS] = {      0x57, 0x6E, 0x5E, 0x3E, 0x6D,
                                         0x5D, 0x3D, 0x6B, 0x5B, 0x3B,
                                         0x67, 0x37} ;
 unsigned int scancodes[KEYROWS] = {   0xE, 0xD, 0xB, 0x7} ;
 unsigned int button = 0x70 ;
 
+// what's this for? idk used to debug keypad probs   
 char keytext[40];
 int prev_key = 0;
 
+// FSM states for keypad debounce
 typedef enum {
-    NOT_PRESSED,
-    MAYBE_PRESSED,
-    PRESSED,
-    MAYBE_NOT_PRESSED
+    NOT_PRESSED,        // Idle... key is not pressed
+    MAYBE_PRESSED,      // Key is pressed, but we need to check if it's stable
+    PRESSED,            // Key is pressed and stable
+    MAYBE_NOT_PRESSED   // Key looked like it was released, but we need to check if it's stable
 } debounce_state_t;
 
-static debounce_state_t key_state = NOT_PRESSED;
-static int possible = -1;
-static int keypad_flag = 0;
-static int record_flag = 0;
+// Playback and recrding flags
+static debounce_state_t key_state = NOT_PRESSED;   // current state of FSM
+static int possible = -1;                          // current keycode index
+static int keypad_flag = 0;                        // flag to indicate if a key is pressed
+static int record_flag = 0;                        // flag to indicate if we are recording
 static int record_key[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 static int record_idx = 0;
 static float record_sound[10][100] = {0.0};  // 100 freq for 10 sec recording
