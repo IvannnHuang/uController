@@ -115,6 +115,139 @@ void rot_ISR(uint gpio, uint32_t events)
 }
 // === END ROTARY ENCODER ISR ===========================================
 
+// =====================================================================
+// === GALTON BOARD: one ball, one peg (added w/ Claude Code assistance)
+// Prompt: "Starting from this example, and using the pseudocode above
+// (which comes from the collision physics for the digital Galton Board
+// webpage), get one ball to bounce off one peg. When the ball exits the
+// bottom of the screen, it should automatically drop again from the top.
+// Use the default parameters: peg_radius = 6, gravity = 0.37,
+// bounciness = 0.5, ball_radius = 4. (Later: vertical separation = 19,
+// horizontal separation = 38.) A peg is a ball with zero velocity and
+// infinite mass."
+//
+// Follows the per-frame ball-update pseudocode on the Galton lab page.
+// Because the peg has zero velocity and infinite mass, the general
+// collision equation reduces to the "bouncing off a round peg" case:
+//     dv = -2 (n . v) n      where n = unit vector from peg to ball
+// and we then scale the ball's velocity by BOUNCINESS on a new-peg hit.
+// =====================================================================
+#define GRAVITY      float2fix15(0.37)
+#define BOUNCINESS   float2fix15(0.5)
+#define BALL_RADIUS  4
+#define PEG_RADIUS   6
+#define PEG_VERT_SEP 19   // unused until we add more pegs
+#define PEG_HORZ_SEP 38   // unused until we add more pegs
+#define SCREEN_W     640
+#define SCREEN_H     480
+// collision distances in fix15 (center-to-center)
+#define COLLIDE_DIST  int2fix15(BALL_RADIUS + PEG_RADIUS)
+#define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)
+
+// the single peg, centered on screen
+fix15 peg_x = int2fix15(320) ;
+fix15 peg_y = int2fix15(120) ;
+
+// the single ball
+fix15 ball_x ;
+fix15 ball_y ;
+fix15 ball_vx ;
+fix15 ball_vy ;
+int ball_last_peg = -1 ;   // index of the last peg struck (-1 = none yet)
+
+// Drop the ball from top-center with zero y-velocity and a small random
+// x-velocity in [-0.25, 0.25) so it doesn't land on the peg dead-center
+void spawnBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
+{
+  *x  = int2fix15(SCREEN_W / 2) ;
+  *y  = int2fix15(0) ;
+  *vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  // *vx = 0 ;
+  *vy = 0 ;
+  *last_peg = -1 ;
+}
+
+// Peg-strike sound. Placeholder until the DMA sound is wired up
+// (pseudocode's dma.trigger()) -- does nothing for now.
+void playPegSound()
+{
+}
+
+// One frame of ball physics (follows the lab pseudocode)
+void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
+{
+  // Split this frame's motion into substeps of at most ~4 px, so a fast
+  // ball can't jump past a peg, or land deep inside it, between checks.
+  int speed = fix2int15(MAX(absfix15(*vx), absfix15(*vy))) ;
+  int steps = (speed >> 2) + 1 ;
+
+  for (int s = 0; s < steps; s++) {
+    // Move one substep (re-divided every step, since a bounce changes v)
+    *x = *x + (*vx / steps) ;
+    *y = *y + (*vy / steps) ;
+
+    // Every ball looks at every peg (only peg 0 for now)
+    int peg = 0 ;
+    fix15 dx = *x - peg_x ;
+    fix15 dy = *y - peg_y ;
+
+    // Cheap bounding-box check first, only do the sqrt if we're close
+    if ((absfix15(dx) < COLLIDE_DIST) && (absfix15(dy) < COLLIDE_DIST)) {
+      fix15 distance = float2fix15(sqrtf(fix2float15(multfix15(dx,dx) + multfix15(dy,dy)))) ;
+
+      // distance > 0 guards the divide if the ball lands exactly on the peg center
+      if ((distance < COLLIDE_DIST) && (distance > 0)) {
+        // Normal vector pointing from peg to ball
+        fix15 normal_x = divfix(dx, distance) ;
+        fix15 normal_y = divfix(dy, distance) ;
+
+        // Velocity component along the normal: < 0 means moving INTO the peg
+        fix15 v_dot_n = multfix15(normal_x, *vx) + multfix15(normal_y, *vy) ;
+
+        // Teleport outside the collision distance, along the normal
+        *x = peg_x + multfix15(normal_x, TELEPORT_DIST) ;
+        *y = peg_y + multfix15(normal_y, TELEPORT_DIST) ;
+
+        // Only reflect if approaching; if already moving away, reflecting
+        // would flip the ball back into the peg (the wrong-direction bounce)
+        if (v_dot_n < 0) {
+          fix15 intermediate_term = multfix15(int2fix15(-2), v_dot_n) ;
+          *vx = *vx + multfix15(normal_x, intermediate_term) ;
+          *vy = *vy + multfix15(normal_y, intermediate_term) ;
+
+          // Did we just strike a new peg?
+          if (peg != *last_peg) {
+            playPegSound() ;
+            *vx = multfix15(BOUNCINESS, *vx) ;
+            *vy = multfix15(BOUNCINESS, *vy) ;
+            *last_peg = peg ;
+          }
+        }
+      }
+    }
+  }
+
+  // Re-spawn any ball that falls thru the bottom of the SCREEN (not the
+  // old demo's inner box -- hitBottom/hitTop/hitLeft/hitRight fire at
+  // y=380/100 and x=100/540, which cut right through where a peg near
+  // the top of the screen lives, causing a second phantom bounce right
+  // after the real peg bounce)
+  if (*y > int2fix15(SCREEN_H)) {
+    spawnBall(x, y, vx, vy, last_peg) ;
+    return ;
+  }
+
+  // Bounce off the screen's top/sides (only if still moving outward, so
+  // it can't get stuck oscillating exactly at the edge)
+  if ((*x < 0)               && (*vx < 0)) *vx = -*vx ;
+  if ((*x > int2fix15(SCREEN_W)) && (*vx > 0)) *vx = -*vx ;
+  if ((*y < 0)               && (*vy < 0)) *vy = -*vy ;
+
+  // Apply gravity (once per frame, same as before)
+  *vy = *vy + GRAVITY ;
+}
+// === END GALTON BOARD BALL/PEG PHYSICS ================================
+
 // the color of the boid
 char color = WHITE ;
 
@@ -217,8 +350,9 @@ static PT_THREAD (protothread_anim(struct pt *pt))
     // Mark beginning of thread
     PT_BEGIN(pt);
 
-    // Spawn a boid
-    spawnBoid(&boid0_x, &boid0_y, &boid0_vx, &boid0_vy, 0);
+    // === GALTON BOARD: drop the first ball (Claude Code assisted) ===
+    // (replaces the original spawnBoid for boid0)
+    spawnBall(&ball_x, &ball_y, &ball_vx, &ball_vy, &ball_last_peg) ;
 
     static char rot_str[32] ;
 
@@ -229,12 +363,13 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       clearLowFrame(0, BLACK);
       // Signal core 1 that it can start drawing
       PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
-      // update boid's position and velocity
-      wallsAndEdges(&boid0_x, &boid0_y, &boid0_vx, &boid0_vy) ;
-      // draw the boid at its new position
-      fillCircle(fix2int15(boid0_x), fix2int15(boid0_y), 15, color); 
-      // draw the boundaries
-      drawArena() ;
+
+      // === GALTON BOARD: update + draw ball and peg (Claude Code assisted) ===
+      // (replaces the original boid0 wallsAndEdges/fillCircle and drawArena)
+      updateBall(&ball_x, &ball_y, &ball_vx, &ball_vy, &ball_last_peg) ;
+      fillCircle(fix2int15(peg_x), fix2int15(peg_y), PEG_RADIUS, WHITE) ;
+      fillCircle(fix2int15(ball_x), fix2int15(ball_y), BALL_RADIUS, color) ;
+      // === END GALTON BOARD DRAW ========================================
 
       // === ROTARY ENCODER: display rot_counter (Claude Code assisted) ===
       sprintf(rot_str, "Count: %d", rot_counter) ;
@@ -259,10 +394,12 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
     while(1) {
       // Wait for the signal from core 0
       PT_SEM_SDK_WAIT(pt, &draw_semaphore) ;
+      // === GALTON BOARD (Claude Code assisted): core 1 boid disabled for
+      // the one-ball/one-peg checkpoint so only the Galton ball is drawn ===
       // update boid's position and velocity
-      wallsAndEdges(&boid1_x, &boid1_y, &boid1_vx, &boid1_vy) ;
+      // wallsAndEdges(&boid1_x, &boid1_y, &boid1_vx, &boid1_vy) ;
       // draw the boid at its new position
-      fillCircle(fix2int15(boid1_x), fix2int15(boid1_y), 15, color); 
+      // fillCircle(fix2int15(boid1_x), fix2int15(boid1_y), 15, color);
      // NEVER exit while
     } // END WHILE(1)
   PT_END(pt);
