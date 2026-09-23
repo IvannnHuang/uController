@@ -13,6 +13,11 @@
   - GPIO 20 ---> 330 ohm resistor ---> VGA-Blue
   - GPIO 21 ---> 330 ohm resistor ---> VGA-Red
   - RP2040 GND ---> VGA-GND
+
+  Rotary encoder
+  GPIO 12 green left side.  A
+  GPIO 11 yellow right side  B
+  need to make sequence detector to detect clockwise and counterclockwise rotation
  *
  * RESOURCES USED
  *  - PIO state machines 0, 1, and 2 on PIO instance 0
@@ -25,6 +30,7 @@
 #include "VGA/vga16_graphics_v3.h"
 // Include standard libraries
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
@@ -60,6 +66,54 @@ typedef signed int fix15 ;
 
 // uS per frame
 #define FRAME_RATE 33000
+
+// =====================================================================
+// === ROTARY ENCODER INTERFACE (added w/ Claude Code assistance)
+// Prompt: "Read the rotary encoder page and write a software interface
+// to the rotary encoder. You should display a number on the VGA display
+// that increments when you rotate the encoder clockwise, and decrements
+// when you rotate it counterclockwise."
+//
+// v2 (Claude Code assisted): the single-edge version above double-counted
+// every click, because one physical click makes A itself edge twice (once
+// as its contact pad engages, once as it releases -- see the encoder page's
+// state diagram). Fix: interrupt on BOTH A and B edges, track which of the
+// 4 possible (A,B) states we're in, and only bump rot_counter once we've
+// walked all the way through one full click's worth of states and landed
+// back at rest. This also makes contact bounce self-cancel, since a bounce
+// steps forward then immediately back (+1 then -1), never reaching the
+// "hey, that's a full click" threshold below.
+// =====================================================================
+#define ROT_A 12
+#define ROT_B 11
+volatile int rot_counter = 0;
+static volatile uint8_t rot_prev_state = 3 ; // (A<<1)|B ; 3 = rest (both high)
+static volatile int8_t  rot_accum = 0 ;      // steps taken since last rest
+
+// Lookup table: index = (prev_state<<2)|curr_state.
+// +1 = one valid step clockwise, -1 = one valid step counterclockwise,
+//  0 = no change, or a state jump that skips a step (bounce/noise) -- ignore.
+static const int8_t rot_table[16] = {
+/* prev=0(00) */  0, -1, +1,  0,
+/* prev=1(01) */ +1,  0,  0, -1,
+/* prev=2(10) */ -1,  0,  0, +1,
+/* prev=3(11) */  0, +1, -1,  0
+} ;
+
+// Fires on every edge of EITHER A or B.
+void rot_ISR(uint gpio, uint32_t events)
+{
+  uint8_t curr_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
+  rot_accum += rot_table[(rot_prev_state << 2) | curr_state] ;
+  rot_prev_state = curr_state ;
+
+  if (curr_state == 3) {               // landed back at rest (a full click, or none)
+    if (rot_accum >= 4)       rot_counter++ ;  // completed one CW click
+    else if (rot_accum <= -4) rot_counter-- ;  // completed one CCW click
+    rot_accum = 0 ;                    // discard partial turns / bounce
+  }
+}
+// === END ROTARY ENCODER ISR ===========================================
 
 // the color of the boid
 char color = WHITE ;
@@ -166,6 +220,8 @@ static PT_THREAD (protothread_anim(struct pt *pt))
     // Spawn a boid
     spawnBoid(&boid0_x, &boid0_y, &boid0_vx, &boid0_vy, 0);
 
+    static char rot_str[32] ;
+
     while(1) {
       // Wait for the signal that the buffer's changed
       PT_YIELD_UNTIL(pt, draw_start_signal()) ;
@@ -179,6 +235,12 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       fillCircle(fix2int15(boid0_x), fix2int15(boid0_y), 15, color); 
       // draw the boundaries
       drawArena() ;
+
+      // === ROTARY ENCODER: display rot_counter (Claude Code assisted) ===
+      sprintf(rot_str, "Count: %d", rot_counter) ;
+      drawTextVGA437(50, 50, rot_str, WHITE, BLACK);
+      // === END ROTARY ENCODER DISPLAY ===================================
+
      // NEVER exit while
     } // END WHILE(1)
   PT_END(pt);
@@ -228,6 +290,23 @@ int main(){
 
   // initialize VGA
   initVGA() ;
+
+  // === ROTARY ENCODER: GPIO + interrupt setup (Claude Code assisted) ===
+  // Pull-ups needed because A/B float when not touching a contact pad.
+  // v2: interrupt on BOTH pins now, since rot_ISR needs to see every step
+  // of the 4-state sequence, not just A's edges.
+  gpio_init(ROT_A);
+  gpio_init(ROT_B);
+  gpio_set_dir(ROT_A, GPIO_IN);
+  gpio_set_dir(ROT_B, GPIO_IN);
+  gpio_pull_up(ROT_A);
+  gpio_pull_up(ROT_B);
+  // seed rot_prev_state with the real, current pin reading (assumes we boot
+  // at rest -- fine since the encoder detents there and holds until turned)
+  rot_prev_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
+  gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &rot_ISR);
+  gpio_set_irq_enabled(ROT_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+  // === END ROTARY ENCODER SETUP =========================================
 
   // Initialize the semaphore
   // Arguments: pointer to sem, initial count, max count
