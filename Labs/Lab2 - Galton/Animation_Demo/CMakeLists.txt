@@ -48,6 +48,7 @@ target_link_libraries(  VGA_Animation_Demo
                         pico_bootsel_via_double_reset
                         hardware_pio
                         hardware_dma
+                        hardware_spi
                         hardware_adc
                         hardware_irq
                         hardware_clocks

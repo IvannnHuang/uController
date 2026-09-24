@@ -17,7 +17,11 @@
   Rotary encoder
   GPIO 12 green left side.  A
   GPIO 11 yellow right side  B
-  need to make sequence detector to detect clockwise and counterclockwise rotation
+
+  MCP4822 DAC (spi1)
+  GPIO 13 ---> CS
+  GPIO 14 ---> SCK
+  GPIO 15 ---> MOSI (SDI)
  *
  * RESOURCES USED
  *  - PIO state machines 0, 1, and 2 on PIO instance 0
@@ -44,6 +48,7 @@
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 #include "hardware/pll.h"
+#include "hardware/spi.h"
 // Include protothreads
 #include "pt_cornell_rp2040_v1_4.h"
 
@@ -68,21 +73,7 @@ typedef signed int fix15 ;
 #define FRAME_RATE 33000
 
 // =====================================================================
-// === ROTARY ENCODER INTERFACE (added w/ Claude Code assistance)
-// Prompt: "Read the rotary encoder page and write a software interface
-// to the rotary encoder. You should display a number on the VGA display
-// that increments when you rotate the encoder clockwise, and decrements
-// when you rotate it counterclockwise."
-//
-// v2 (Claude Code assisted): the single-edge version above double-counted
-// every click, because one physical click makes A itself edge twice (once
-// as its contact pad engages, once as it releases -- see the encoder page's
-// state diagram). Fix: interrupt on BOTH A and B edges, track which of the
-// 4 possible (A,B) states we're in, and only bump rot_counter once we've
-// walked all the way through one full click's worth of states and landed
-// back at rest. This also makes contact bounce self-cancel, since a bounce
-// steps forward then immediately back (+1 then -1), never reaching the
-// "hey, that's a full click" threshold below.
+// === ROTARY ENCODER INTERFACE ========================================
 // =====================================================================
 #define ROT_A 12
 #define ROT_B 11
@@ -113,42 +104,66 @@ void rot_ISR(uint gpio, uint32_t events)
     rot_accum = 0 ;                    // discard partial turns / bounce
   }
 }
-// === END ROTARY ENCODER ISR ===========================================
 
 // =====================================================================
-// === GALTON BOARD: one ball, one peg (added w/ Claude Code assistance)
-// Prompt: "Starting from this example, and using the pseudocode above
-// (which comes from the collision physics for the digital Galton Board
-// webpage), get one ball to bounce off one peg. When the ball exits the
-// bottom of the screen, it should automatically drop again from the top.
-// Use the default parameters: peg_radius = 6, gravity = 0.37,
-// bounciness = 0.5, ball_radius = 4. (Later: vertical separation = 19,
-// horizontal separation = 38.) A peg is a ball with zero velocity and
-// infinite mass."
-//
-// Follows the per-frame ball-update pseudocode on the Galton lab page.
-// Because the peg has zero velocity and infinite mass, the general
-// collision equation reduces to the "bouncing off a round peg" case:
-//     dv = -2 (n . v) n      where n = unit vector from peg to ball
-// and we then scale the ball's velocity by BOUNCINESS on a new-peg hit.
+// === GALTON BOARD ====================================================
 // =====================================================================
 #define GRAVITY      float2fix15(0.37)
 #define BOUNCINESS   float2fix15(0.5)
 #define BALL_RADIUS  4
 #define PEG_RADIUS   6
-#define PEG_VERT_SEP 19   // unused until we add more pegs
-#define PEG_HORZ_SEP 38   // unused until we add more pegs
+#define PEG_VERT_SEP 19
+#define PEG_HORZ_SEP 38
 #define SCREEN_W     640
 #define SCREEN_H     480
 // collision distances in fix15 (center-to-center)
 #define COLLIDE_DIST  int2fix15(BALL_RADIUS + PEG_RADIUS)
 #define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)
 
-// the single peg, centered on screen
-fix15 peg_x = int2fix15(320) ;
-fix15 peg_y = int2fix15(120) ;
+// Board layout: row r (0..15) has r+1 pegs, centered on BOARD_TOP_X.
+// Bottom row sits at BOARD_TOP_Y + 15*19 = 335, leaving room for the histogram.
+#define NUM_ROWS     16
+#define NUM_PEGS     (NUM_ROWS * (NUM_ROWS + 1) / 2)   // 136
+#define BOARD_TOP_X  (SCREEN_W / 2)
+#define BOARD_TOP_Y  50
 
-// the single ball
+// Peg centers, indexed row by row: peg = row*(row+1)/2 + col
+fix15 peg_x[NUM_PEGS] ;
+fix15 peg_y[NUM_PEGS] ;
+
+// Fill in the peg table once at startup
+void initPegs()
+{
+  int peg = 0 ;
+  for (int row = 0; row < NUM_ROWS; row++) {
+    for (int col = 0; col <= row; col++) {
+      // leftmost peg of each row is half a row-width left of center
+      peg_x[peg] = int2fix15(BOARD_TOP_X - row * (PEG_HORZ_SEP / 2) + col * PEG_HORZ_SEP) ;
+      peg_y[peg] = int2fix15(BOARD_TOP_Y + row * PEG_VERT_SEP) ;
+      peg++ ;
+    }
+  }
+}
+
+// Index of the peg nearest (x, y), or -1 if the ball isn't within half a
+// spacing of any peg. Rows are 19 px apart and the collision distance is 10,
+// so the nearest peg is the only one the ball can be touching.
+int nearestPeg(fix15 x, fix15 y)
+{
+  int yi = fix2int15(y) - BOARD_TOP_Y + (PEG_VERT_SEP / 2) ;
+  if (yi < 0) return -1 ;                  // above the board
+  int row = yi / PEG_VERT_SEP ;
+  if (row >= NUM_ROWS) return -1 ;         // below the board
+
+  int xi = fix2int15(x) - (BOARD_TOP_X - row * (PEG_HORZ_SEP / 2)) + (PEG_HORZ_SEP / 2) ;
+  if (xi < 0) return -1 ;                  // left of this row
+  int col = xi / PEG_HORZ_SEP ;
+  if (col > row) return -1 ;               // right of this row
+
+  return row * (row + 1) / 2 + col ;
+}
+
+// balls' position and velocity 
 fix15 ball_x ;
 fix15 ball_y ;
 fix15 ball_vx ;
@@ -167,13 +182,94 @@ void spawnBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
   *last_peg = -1 ;
 }
 
-// Peg-strike sound. Placeholder until the DMA sound is wired up
-// (pseudocode's dma.trigger()) -- does nothing for now.
-void playPegSound()
+// =====================================================================
+// === DMA  ============================================================
+// =====================================================================
+// DAC wiring (same as Lab 1)
+#define PIN_CS   13
+#define PIN_SCK  14
+#define PIN_MOSI 15
+#define SPI_PORT spi1
+// A-channel, 1x gain, active
+#define DAC_config_chan_A 0b0011000000000000
+
+#define SOUND_FS       50000    // DAC sample rate (Hz)
+#define PEG_SOUND_FREQ 800.0f   // pitch of the "thunk" (Hz)
+#define PEG_SOUND_LEN  1500     // 1500 samples / 50 kHz = 30 ms
+#define PEG_ATTACK     50       // samples to ramp up (avoids a click at the start)
+
+// Precomputed sound, each sample already has the DAC config bits OR'd in
+static uint16_t peg_sound[PEG_SOUND_LEN] ;
+static uint16_t * peg_sound_addr = &peg_sound[0] ;
+static int snd_data_chan ;
+static int snd_ctrl_chan ;
+
+// Set up SPI, build the sound table, and configure the DMA
+void initPegSound()
 {
+  // SPI at 20 MHz, 16-bit transfers; CS driven by the SPI hardware
+  spi_init(SPI_PORT, 20000000) ;
+  spi_set_format(SPI_PORT, 16, 0, 0, 0) ;
+  gpio_set_function(PIN_CS,   GPIO_FUNC_SPI) ;
+  gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI) ;
+  gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI) ;
+
+  // Sine at PEG_SOUND_FREQ with a short linear attack and a linear decay to
+  // zero, centered on mid-scale (2048) so the DAC rests at mid-scale after
+  for (int i = 0; i < PEG_SOUND_LEN; i++) {
+    float env = (i < PEG_ATTACK) ? (float)i / PEG_ATTACK
+                                 : (float)(PEG_SOUND_LEN - i) / (PEG_SOUND_LEN - PEG_ATTACK) ;
+    int sample = (int)(2047.0f * env * sinf(6.2832f * PEG_SOUND_FREQ * i / SOUND_FS)) + 2048 ;
+    peg_sound[i] = DAC_config_chan_A | (sample & 0x0fff) ;
+  }
+
+  // Park the DAC at mid-scale now, so the first sound doesn't start with a pop
+  uint16_t mid = DAC_config_chan_A | 2048 ;
+  spi_write16_blocking(SPI_PORT, &mid, 1) ;
+
+  snd_data_chan = dma_claim_unused_channel(true) ;
+  snd_ctrl_chan = dma_claim_unused_channel(true) ;
+    
+  // Setup the control channel
+  dma_channel_config c = dma_channel_get_default_config(snd_ctrl_chan) ;
+  channel_config_set_transfer_data_size(&c, DMA_SIZE_32) ;
+  channel_config_set_read_increment(&c, false) ;
+  channel_config_set_write_increment(&c, false) ;
+  channel_config_set_chain_to(&c, snd_data_chan) ;
+  dma_channel_configure(
+    snd_ctrl_chan, 
+    &c,
+    &dma_hw->ch[snd_data_chan].read_addr,   // write: data channel's read address
+    &peg_sound_addr,                        // read: POINTER to the sound's address
+    1,                                      // one transfer
+    false) ;                                // don't start
+
+  // DMA pacing timer: rate = (X/Y) * sys_clk = sys_clk / 3000 = 50 kHz at 150 MHz
+  int snd_timer = dma_claim_unused_timer(true) ;
+  dma_timer_set_fraction(snd_timer, 1, (uint16_t)(clock_get_hz(clk_sys) / SOUND_FS)) ;
+
+  // Setup the data channel
+  dma_channel_config c2 = dma_channel_get_default_config(snd_data_chan) ;
+  channel_config_set_transfer_data_size(&c2, DMA_SIZE_16) ;
+  channel_config_set_read_increment(&c2, true) ;
+  channel_config_set_write_increment(&c2, false) ;
+  channel_config_set_dreq(&c2, dma_get_timer_dreq(snd_timer)) ;
+  dma_channel_configure(
+    snd_data_chan, &c2,
+    &spi_get_hw(SPI_PORT)->dr,              // write: SPI data register
+    peg_sound,                              // read: start of the sound
+    PEG_SOUND_LEN,                          // transfers per trigger (reloaded on each trigger)
+    false) ;                                // don't start
 }
 
-// One frame of ball physics (follows the lab pseudocode)
+// Peg-strike sound
+void playPegSound()
+{
+  if (dma_channel_is_busy(snd_data_chan) || dma_channel_is_busy(snd_ctrl_chan)) return ;
+  dma_start_channel_mask(1u << snd_ctrl_chan) ;
+}
+
+// One frame of ball physics 
 void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
 {
   // Split this frame's motion into substeps of at most ~4 px, so a fast
@@ -182,14 +278,15 @@ void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
   int steps = (speed >> 2) + 1 ;
 
   for (int s = 0; s < steps; s++) {
-    // Move one substep (re-divided every step, since a bounce changes v)
+    // Move one substep 
     *x = *x + (*vx / steps) ;
     *y = *y + (*vy / steps) ;
 
-    // Every ball looks at every peg (only peg 0 for now)
-    int peg = 0 ;
-    fix15 dx = *x - peg_x ;
-    fix15 dy = *y - peg_y ;
+    // Only the nearest peg can be in contact
+    int peg = nearestPeg(*x, *y) ;
+    if (peg < 0) continue ;
+    fix15 dx = *x - peg_x[peg] ;
+    fix15 dy = *y - peg_y[peg] ;
 
     // Cheap bounding-box check first, only do the sqrt if we're close
     if ((absfix15(dx) < COLLIDE_DIST) && (absfix15(dy) < COLLIDE_DIST)) {
@@ -205,17 +302,16 @@ void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
         fix15 v_dot_n = multfix15(normal_x, *vx) + multfix15(normal_y, *vy) ;
 
         // Teleport outside the collision distance, along the normal
-        *x = peg_x + multfix15(normal_x, TELEPORT_DIST) ;
-        *y = peg_y + multfix15(normal_y, TELEPORT_DIST) ;
+        *x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
+        *y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
 
-        // Only reflect if approaching; if already moving away, reflecting
-        // would flip the ball back into the peg (the wrong-direction bounce)
+        // Only reflect if approaching
         if (v_dot_n < 0) {
           fix15 intermediate_term = multfix15(int2fix15(-2), v_dot_n) ;
           *vx = *vx + multfix15(normal_x, intermediate_term) ;
           *vy = *vy + multfix15(normal_y, intermediate_term) ;
 
-          // Did we just strike a new peg?
+          // Did we just strike a new peg
           if (peg != *last_peg) {
             playPegSound() ;
             *vx = multfix15(BOUNCINESS, *vx) ;
@@ -227,91 +323,26 @@ void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
     }
   }
 
-  // Re-spawn any ball that falls thru the bottom of the SCREEN (not the
-  // old demo's inner box -- hitBottom/hitTop/hitLeft/hitRight fire at
-  // y=380/100 and x=100/540, which cut right through where a peg near
-  // the top of the screen lives, causing a second phantom bounce right
-  // after the real peg bounce)
+  // Re-spawn any ball that falls thru the bottom of the SCREEN 
   if (*y > int2fix15(SCREEN_H)) {
     spawnBall(x, y, vx, vy, last_peg) ;
     return ;
   }
 
-  // Bounce off the screen's top/sides (only if still moving outward, so
-  // it can't get stuck oscillating exactly at the edge)
+  // Bounce off the screen's top/sides 
   if ((*x < 0)               && (*vx < 0)) *vx = -*vx ;
   if ((*x > int2fix15(SCREEN_W)) && (*vx > 0)) *vx = -*vx ;
   if ((*y < 0)               && (*vy < 0)) *vy = -*vy ;
 
-  // Apply gravity (once per frame, same as before)
+  // Apply gravity 
   *vy = *vy + GRAVITY ;
 }
-// === END GALTON BOARD BALL/PEG PHYSICS ================================
 
 // the color of the boid
 char color = WHITE ;
 
-// Boid on core 0
-fix15 boid0_x ;
-fix15 boid0_y ;
-fix15 boid0_vx ;
-fix15 boid0_vy ;
-
-// Boid on core 1
-fix15 boid1_x ;
-fix15 boid1_y ;
-fix15 boid1_vx ;
-fix15 boid1_vy ;
-
 // Create a semaphore
 semaphore_t draw_semaphore ;
-
-// Create a boid
-void spawnBoid(fix15* x, fix15* y, fix15* vx, fix15* vy, int direction)
-{
-  // Start in center of screen
-  *x = int2fix15(320) ;
-  *y = int2fix15(240) ;
-  // Choose left or right
-  if (direction) *vx = int2fix15(3) ;
-  else *vx = int2fix15(-3) ;
-  // Moving down
-  *vy = int2fix15(1) ;
-}
-
-// Draw the boundaries
-void drawArena() {
-  drawVLine(100, 100, 280, WHITE) ;
-  drawVLine(540, 100, 280, WHITE) ;
-  drawHLine(100, 100, 440, WHITE) ;
-  drawHLine(100, 380, 440, WHITE) ;
-}
-
-// Detect wallstrikes, update velocity and position
-void wallsAndEdges(fix15* x, fix15* y, fix15* vx, fix15* vy)
-{
-  // Reverse direction if we've hit a wall
-  if (hitTop(*y)) {
-    *vy = (-*vy) ;
-    *y  = (*y + int2fix15(5)) ;
-  }
-  if (hitBottom(*y)) {
-    *vy = (-*vy) ;
-    *y  = (*y - int2fix15(5)) ;
-  } 
-  if (hitRight(*x)) {
-    *vx = (-*vx) ;
-    *x  = (*x - int2fix15(5)) ;
-  }
-  if (hitLeft(*x)) {
-    *vx = (-*vx) ;
-    *x  = (*x + int2fix15(5)) ;
-  } 
-
-  // Update position using velocity
-  *x = *x + *vx ;
-  *y = *y + *vy ;
-}
 
 // ==================================================
 // === users serial input thread
@@ -350,8 +381,8 @@ static PT_THREAD (protothread_anim(struct pt *pt))
     // Mark beginning of thread
     PT_BEGIN(pt);
 
-    // === GALTON BOARD: drop the first ball (Claude Code assisted) ===
-    // (replaces the original spawnBoid for boid0)
+    // === GALTON BOARD: build the peg table, then drop the first ball ===
+    initPegs() ;
     spawnBall(&ball_x, &ball_y, &ball_vx, &ball_vy, &ball_last_peg) ;
 
     static char rot_str[32] ;
@@ -364,17 +395,16 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       // Signal core 1 that it can start drawing
       PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
 
-      // === GALTON BOARD: update + draw ball and peg (Claude Code assisted) ===
-      // (replaces the original boid0 wallsAndEdges/fillCircle and drawArena)
+      // === GALTON BOARD ===
       updateBall(&ball_x, &ball_y, &ball_vx, &ball_vy, &ball_last_peg) ;
-      fillCircle(fix2int15(peg_x), fix2int15(peg_y), PEG_RADIUS, WHITE) ;
+      for (int i = 0; i < NUM_PEGS; i++) {
+        fillCircle(fix2int15(peg_x[i]), fix2int15(peg_y[i]), PEG_RADIUS, WHITE) ;
+      }
       fillCircle(fix2int15(ball_x), fix2int15(ball_y), BALL_RADIUS, color) ;
-      // === END GALTON BOARD DRAW ========================================
 
-      // === ROTARY ENCODER: display rot_counter (Claude Code assisted) ===
+      // === ROTARY ENCODER ===
       sprintf(rot_str, "Count: %d", rot_counter) ;
       drawTextVGA437(50, 50, rot_str, WHITE, BLACK);
-      // === END ROTARY ENCODER DISPLAY ===================================
 
      // NEVER exit while
     } // END WHILE(1)
@@ -388,19 +418,9 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
     // Mark beginning of thread
     PT_BEGIN(pt);
 
-    // Spawn a boid
-    spawnBoid(&boid1_x, &boid1_y, &boid1_vx, &boid1_vy, 1);
-
     while(1) {
       // Wait for the signal from core 0
       PT_SEM_SDK_WAIT(pt, &draw_semaphore) ;
-      // === GALTON BOARD (Claude Code assisted): core 1 boid disabled for
-      // the one-ball/one-peg checkpoint so only the Galton ball is drawn ===
-      // update boid's position and velocity
-      // wallsAndEdges(&boid1_x, &boid1_y, &boid1_vx, &boid1_vy) ;
-      // draw the boid at its new position
-      // fillCircle(fix2int15(boid1_x), fix2int15(boid1_y), 15, color);
-     // NEVER exit while
     } // END WHILE(1)
   PT_END(pt);
 } // animation thread
@@ -428,22 +448,19 @@ int main(){
   // initialize VGA
   initVGA() ;
 
-  // === ROTARY ENCODER: GPIO + interrupt setup (Claude Code assisted) ===
-  // Pull-ups needed because A/B float when not touching a contact pad.
-  // v2: interrupt on BOTH pins now, since rot_ISR needs to see every step
-  // of the 4-state sequence, not just A's edges.
+  // initialize the DAC + DMA for the peg sound
+  initPegSound() ;
+
+  // === ROTARY ENCODER ===
   gpio_init(ROT_A);
   gpio_init(ROT_B);
   gpio_set_dir(ROT_A, GPIO_IN);
   gpio_set_dir(ROT_B, GPIO_IN);
   gpio_pull_up(ROT_A);
   gpio_pull_up(ROT_B);
-  // seed rot_prev_state with the real, current pin reading (assumes we boot
-  // at rest -- fine since the encoder detents there and holds until turned)
   rot_prev_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
   gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &rot_ISR);
   gpio_set_irq_enabled(ROT_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-  // === END ROTARY ENCODER SETUP =========================================
 
   // Initialize the semaphore
   // Arguments: pointer to sem, initial count, max count
