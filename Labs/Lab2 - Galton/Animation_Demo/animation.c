@@ -77,7 +77,12 @@ typedef signed int fix15 ;
 // =====================================================================
 #define ROT_A 12
 #define ROT_B 11
-volatile int rot_counter = 0;
+
+// The encoder sets the number of balls: one click = one ball
+#define MIN_BALLS  1
+#define MAX_BALLS  100
+#define INIT_BALLS 10
+volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
 static volatile uint8_t rot_prev_state = 3 ; // (A<<1)|B ; 3 = rest (both high)
 static volatile int8_t  rot_accum = 0 ;      // steps taken since last rest
 
@@ -99,8 +104,9 @@ void rot_ISR(uint gpio, uint32_t events)
   rot_prev_state = curr_state ;
 
   if (curr_state == 3) {               // landed back at rest (a full click, or none)
-    if (rot_accum >= 4)       rot_counter++ ;  // completed one CW click
-    else if (rot_accum <= -4) rot_counter-- ;  // completed one CCW click
+    // completed one click; clamp here so extra turns past the limits don't wind up
+    if      ((rot_accum >=  4) && (rot_counter < MAX_BALLS)) rot_counter++ ;  // CW
+    else if ((rot_accum <= -4) && (rot_counter > MIN_BALLS)) rot_counter-- ;  // CCW
     rot_accum = 0 ;                    // discard partial turns / bounce
   }
 }
@@ -121,11 +127,11 @@ void rot_ISR(uint gpio, uint32_t events)
 #define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)
 
 // Board layout: row r (0..15) has r+1 pegs, centered on BOARD_TOP_X.
-// Bottom row sits at BOARD_TOP_Y + 15*19 = 335, leaving room for the histogram.
+// Bottom row sits at BOARD_TOP_Y + 15*19 = 385, leaving room for the histogram.
 #define NUM_ROWS     16
 #define NUM_PEGS     (NUM_ROWS * (NUM_ROWS + 1) / 2)   // 136
 #define BOARD_TOP_X  (SCREEN_W / 2)
-#define BOARD_TOP_Y  50
+#define BOARD_TOP_Y  100
 
 // Peg centers, indexed row by row: peg = row*(row+1)/2 + col
 fix15 peg_x[NUM_PEGS] ;
@@ -163,23 +169,79 @@ int nearestPeg(fix15 x, fix15 y)
   return row * (row + 1) / 2 + col ;
 }
 
-// balls' position and velocity 
-fix15 ball_x ;
-fix15 ball_y ;
-fix15 ball_vx ;
-fix15 ball_vy ;
-int ball_last_peg = -1 ;   // index of the last peg struck (-1 = none yet)
+// === BALLS ===
+#define SPAWN_GAP    30   // vertical spacing (px) of newly added balls, so they don't fall as one clump
+
+typedef struct {
+  fix15 x, y ;        // position
+  fix15 vx, vy ;      // velocity (px/frame)
+  int   last_peg ;    // index of the last peg struck (-1 = none yet)
+  int   binned ;      // 1 once this drop has been counted in the histogram
+} ball_t ;
+
+ball_t balls[MAX_BALLS] ;
+int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
+int total_fallen = 0 ;  // balls that have passed the bottom row since boot
+
+// === HISTOGRAM ===
+// 16 rows -> 17 landing spots: the 15 gaps between bottom-row pegs, plus one
+// past each end. Bin k is centered PEG_HORZ_SEP*k right of BIN0_CENTER_X.
+#define NUM_BINS       (NUM_ROWS + 1)
+#define BOTTOM_ROW_Y   (BOARD_TOP_Y + (NUM_ROWS - 1) * PEG_VERT_SEP)          // 385
+#define BOTTOM_LEFT_X  (BOARD_TOP_X - (NUM_ROWS - 1) * (PEG_HORZ_SEP / 2))    // 35
+#define BIN0_CENTER_X  (BOTTOM_LEFT_X - PEG_HORZ_SEP / 2)
+// A ball is counted once its top edge clears the bottom row of pegs
+#define BIN_LINE_Y     int2fix15(BOTTOM_ROW_Y + PEG_RADIUS + BALL_RADIUS)
+// Bars fill the space under the board; the tallest bar is always HIST_H tall
+#define HIST_TOP       (BOTTOM_ROW_Y + 15)
+#define HIST_BOTTOM    (SCREEN_H - 2)   // fillRect won't draw row 479
+#define HIST_H         (HIST_BOTTOM - HIST_TOP + 1)
+#define BAR_W          (PEG_HORZ_SEP - 4)
+
+int bins[NUM_BINS] ;
 
 // Drop the ball from top-center with zero y-velocity and a small random
 // x-velocity in [-0.25, 0.25) so it doesn't land on the peg dead-center
-void spawnBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
+void spawnBall(ball_t* b)
 {
-  *x  = int2fix15(SCREEN_W / 2) ;
-  *y  = int2fix15(0) ;
-  *vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
-  // *vx = 0 ;
-  *vy = 0 ;
-  *last_peg = -1 ;
+  b->x  = int2fix15(SCREEN_W / 2) ;
+  b->y  = int2fix15(0) ;
+  b->vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  b->vy = 0 ;
+  b->last_peg = -1 ;
+  b->binned = 0 ;
+}
+
+// Count a ball that just passed the bottom row: which gap did it go through?
+void binBall(ball_t* b)
+{
+  int xi = fix2int15(b->x) - BOTTOM_LEFT_X ;          // relative to leftmost bottom peg
+  int bin = (xi < 0) ? 0 : (xi / PEG_HORZ_SEP) + 1 ;  // left of it = bin 0
+  if (bin > NUM_BINS - 1) bin = NUM_BINS - 1 ;        // right of rightmost peg
+  bins[bin]++ ;
+  total_fallen++ ;
+  b->binned = 1 ;
+}
+
+// Draw the histogram under the board, scaled so the fullest bin is HIST_H tall
+void drawHistogram()
+{
+  int max_count = 0 ;
+  for (int k = 0; k < NUM_BINS; k++) {
+    if (bins[k] > max_count) max_count = bins[k] ;
+  }
+  if (max_count == 0) return ;   // nothing to draw yet
+
+  for (int k = 0; k < NUM_BINS; k++) {
+    int h = bins[k] * HIST_H / max_count ;
+    if (h == 0) continue ;
+    // bar centered on its gap, clipped to the screen at the two outer bins
+    int left  = BIN0_CENTER_X + k * PEG_HORZ_SEP - BAR_W / 2 ;
+    int right = left + BAR_W ;
+    if (left < 0) left = 0 ;
+    if (right > SCREEN_W) right = SCREEN_W ;
+    fillRect(left, HIST_BOTTOM - h + 1, right - left, h, GREEN) ;
+  }
 }
 
 // =====================================================================
@@ -195,7 +257,7 @@ void spawnBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
 
 #define SOUND_FS       50000    // DAC sample rate (Hz)
 #define PEG_SOUND_FREQ 800.0f   // pitch of the "thunk" (Hz)
-#define PEG_SOUND_LEN  1500     // 1500 samples / 50 kHz = 30 ms
+#define PEG_SOUND_LEN  500      // 500 samples / 50 kHz = 10 ms (short, so more hits get their own sound)
 #define PEG_ATTACK     50       // samples to ramp up (avoids a click at the start)
 
 // Precomputed sound, each sample already has the DAC config bits OR'd in
@@ -262,7 +324,7 @@ void initPegSound()
     false) ;                                // don't start
 }
 
-// Peg-strike sound
+// Peg-strike sound. drop sound if bounces overlapped
 void playPegSound()
 {
   if (dma_channel_is_busy(snd_data_chan) || dma_channel_is_busy(snd_ctrl_chan)) return ;
@@ -270,23 +332,23 @@ void playPegSound()
 }
 
 // One frame of ball physics 
-void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
+void updateBall(ball_t* b)
 {
   // Split this frame's motion into substeps of at most ~4 px, so a fast
   // ball can't jump past a peg, or land deep inside it, between checks.
-  int speed = fix2int15(MAX(absfix15(*vx), absfix15(*vy))) ;
+  int speed = fix2int15(MAX(absfix15(b->vx), absfix15(b->vy))) ;
   int steps = (speed >> 2) + 1 ;
 
   for (int s = 0; s < steps; s++) {
-    // Move one substep 
-    *x = *x + (*vx / steps) ;
-    *y = *y + (*vy / steps) ;
+    // Move one substep
+    b->x = b->x + (b->vx / steps) ;
+    b->y = b->y + (b->vy / steps) ;
 
     // Only the nearest peg can be in contact
-    int peg = nearestPeg(*x, *y) ;
+    int peg = nearestPeg(b->x, b->y) ;
     if (peg < 0) continue ;
-    fix15 dx = *x - peg_x[peg] ;
-    fix15 dy = *y - peg_y[peg] ;
+    fix15 dx = b->x - peg_x[peg] ;
+    fix15 dy = b->y - peg_y[peg] ;
 
     // Cheap bounding-box check first, only do the sqrt if we're close
     if ((absfix15(dx) < COLLIDE_DIST) && (absfix15(dy) < COLLIDE_DIST)) {
@@ -299,43 +361,47 @@ void updateBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
         fix15 normal_y = divfix(dy, distance) ;
 
         // Velocity component along the normal: < 0 means moving INTO the peg
-        fix15 v_dot_n = multfix15(normal_x, *vx) + multfix15(normal_y, *vy) ;
+        fix15 v_dot_n = multfix15(normal_x, b->vx) + multfix15(normal_y, b->vy) ;
 
         // Teleport outside the collision distance, along the normal
-        *x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
-        *y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
+        b->x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
+        b->y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
 
         // Only reflect if approaching
         if (v_dot_n < 0) {
           fix15 intermediate_term = multfix15(int2fix15(-2), v_dot_n) ;
-          *vx = *vx + multfix15(normal_x, intermediate_term) ;
-          *vy = *vy + multfix15(normal_y, intermediate_term) ;
+          b->vx = b->vx + multfix15(normal_x, intermediate_term) ;
+          b->vy = b->vy + multfix15(normal_y, intermediate_term) ;
 
           // Did we just strike a new peg
-          if (peg != *last_peg) {
+          if (peg != b->last_peg) {
             playPegSound() ;
-            *vx = multfix15(BOUNCINESS, *vx) ;
-            *vy = multfix15(BOUNCINESS, *vy) ;
-            *last_peg = peg ;
+            b->vx = multfix15(BOUNCINESS, b->vx) ;
+            b->vy = multfix15(BOUNCINESS, b->vy) ;
+            b->last_peg = peg ;
           }
         }
       }
     }
   }
 
-  // Re-spawn any ball that falls thru the bottom of the SCREEN 
-  if (*y > int2fix15(SCREEN_H)) {
-    spawnBall(x, y, vx, vy, last_peg) ;
+  // Count it in the histogram as it leaves the board (not at the screen
+  // bottom, since it keeps drifting sideways as it falls)
+  if (!b->binned && (b->y > BIN_LINE_Y)) binBall(b) ;
+
+  // Re-spawn any ball that falls thru the bottom of the SCREEN
+  if (b->y > int2fix15(SCREEN_H)) {
+    spawnBall(b) ;
     return ;
   }
 
-  // Bounce off the screen's top/sides 
-  if ((*x < 0)               && (*vx < 0)) *vx = -*vx ;
-  if ((*x > int2fix15(SCREEN_W)) && (*vx > 0)) *vx = -*vx ;
-  if ((*y < 0)               && (*vy < 0)) *vy = -*vy ;
+  // Bounce off the screen's sides. (No top bounce: balls start above the
+  // screen at negative y and fall in.)
+  if ((b->x < 0)                 && (b->vx < 0)) b->vx = -b->vx ;
+  if ((b->x > int2fix15(SCREEN_W)) && (b->vx > 0)) b->vx = -b->vx ;
 
-  // Apply gravity 
-  *vy = *vy + GRAVITY ;
+  // Apply gravity
+  b->vy = b->vy + GRAVITY ;
 }
 
 // the color of the boid
@@ -381,11 +447,10 @@ static PT_THREAD (protothread_anim(struct pt *pt))
     // Mark beginning of thread
     PT_BEGIN(pt);
 
-    // === GALTON BOARD: build the peg table, then drop the first ball ===
+    // === GALTON BOARD: build the peg table (balls are added in the loop) ===
     initPegs() ;
-    spawnBall(&ball_x, &ball_y, &ball_vx, &ball_vy, &ball_last_peg) ;
 
-    static char rot_str[32] ;
+    static char text_str[40] ;
 
     while(1) {
       // Wait for the signal that the buffer's changed
@@ -395,16 +460,37 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       // Signal core 1 that it can start drawing
       PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
 
+      // === ROTARY ENCODER: match the ball count to the knob ===
+      int target = rot_counter ;     // read the ISR's value once
+      // Adding balls: spawn each new one, stacked SPAWN_GAP px apart above
+      // the screen so they fall in one after another
+      for (int i = num_balls; i < target; i++) {
+        spawnBall(&balls[i]) ;
+        balls[i].y = int2fix15(-(i - num_balls) * SPAWN_GAP) ;
+      }
+      // Removing balls: the extras just stop being updated/drawn
+      num_balls = target ;
+
       // === GALTON BOARD ===
-      updateBall(&ball_x, &ball_y, &ball_vx, &ball_vy, &ball_last_peg) ;
       for (int i = 0; i < NUM_PEGS; i++) {
         fillCircle(fix2int15(peg_x[i]), fix2int15(peg_y[i]), PEG_RADIUS, WHITE) ;
       }
-      fillCircle(fix2int15(ball_x), fix2int15(ball_y), BALL_RADIUS, color) ;
+      for (int i = 0; i < num_balls; i++) {
+        updateBall(&balls[i]) ;
+      }
+      // histogram first, so balls falling through it are drawn on top
+      drawHistogram() ;
+      for (int i = 0; i < num_balls; i++) {
+        fillCircle(fix2int15(balls[i].x), fix2int15(balls[i].y), BALL_RADIUS, color) ;
+      }
 
-      // === ROTARY ENCODER ===
-      sprintf(rot_str, "Count: %d", rot_counter) ;
-      drawTextVGA437(50, 50, rot_str, WHITE, BLACK);
+      // === TEXT ===
+      sprintf(text_str, "Balls:  %d", num_balls) ;
+      drawTextVGA437(10, 10, text_str, WHITE, BLACK) ;
+      sprintf(text_str, "Fallen: %d", total_fallen) ;
+      drawTextVGA437(10, 30, text_str, WHITE, BLACK) ;
+      sprintf(text_str, "Time:   %d s", (int)(time_us_64() / 1000000)) ;
+      drawTextVGA437(10, 50, text_str, WHITE, BLACK) ;
 
      // NEVER exit while
     } // END WHILE(1)
