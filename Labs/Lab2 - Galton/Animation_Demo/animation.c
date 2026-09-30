@@ -177,6 +177,8 @@ void rot_ISR(uint gpio, uint32_t events)
 // collision distances in fix15 (center-to-center)
 #define COLLIDE_DIST  int2fix15(BALL_RADIUS + PEG_RADIUS)
 #define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)
+// squared collision distance (px^2, in fix15), so the test needs no sqrt
+#define COLLIDE_DIST2 int2fix15((BALL_RADIUS + PEG_RADIUS) * (BALL_RADIUS + PEG_RADIUS))
 
 // Board layout: row r (0..15) has r+1 pegs, centered on BOARD_TOP_X.
 // Bottom row sits at BOARD_TOP_Y + 15*19 = 385, leaving room for the histogram.
@@ -394,53 +396,64 @@ void playPegSound()
 // One frame of ball physics 
 void updateBall(ball_t* b)
 {
-  // Split this frame's motion into substeps of at most ~4 px, so a fast
-  // ball can't jump past a peg, or land deep inside it, between checks.
-  int speed = fix2int15(MAX(absfix15(b->vx), absfix15(b->vy))) ;
-  int steps = (speed >> 2) + 1 ;
+  // Past the bottom row there are no pegs left to hit (and gravity keeps
+  // it moving down), so skip the substeps and peg search: just move it.
+  if (b->y > BIN_LINE_Y) {
+    b->x = b->x + b->vx ;
+    b->y = b->y + b->vy ;
+  } else {
+    // Split this frame's motion into substeps of at most ~4 px, so a fast
+    // ball can't jump past a peg, or land deep inside it, between checks.
+    int speed = fix2int15(MAX(absfix15(b->vx), absfix15(b->vy))) ;
+    int steps = (speed >> 2) + 1 ;
+    fix15 step_vx = b->vx / steps ;   // divide once, not every substep
+    fix15 step_vy = b->vy / steps ;
 
-  for (int s = 0; s < steps; s++) {
-    // Move one substep
-    b->x = b->x + (b->vx / steps) ;
-    b->y = b->y + (b->vy / steps) ;
+    for (int s = 0; s < steps; s++) {
+      // Move one substep
+      b->x = b->x + step_vx ;
+      b->y = b->y + step_vy ;
 
-    // Only the nearest peg can be in contact
-    int peg = nearestPeg(b->x, b->y) ;
-    if (peg < 0) continue ;
-    fix15 dx = b->x - peg_x[peg] ;
-    fix15 dy = b->y - peg_y[peg] ;
+      // Only the nearest peg can be in contact
+      int peg = nearestPeg(b->x, b->y) ;
+      if (peg < 0) continue ;
+      fix15 dx = b->x - peg_x[peg] ;
+      fix15 dy = b->y - peg_y[peg] ;
 
-    // Cheap bounding-box check first, only do the sqrt if we're close
-    if ((absfix15(dx) < COLLIDE_DIST) && (absfix15(dy) < COLLIDE_DIST)) {
-      fix15 distance = float2fix15(sqrtf(fix2float15(multfix15(dx,dx) + multfix15(dy,dy)))) ;
+      // Cheap bounding-box check first, then compare SQUARED distances, so
+      // near-misses in the box corners never pay for a sqrt
+      if ((absfix15(dx) < COLLIDE_DIST) && (absfix15(dy) < COLLIDE_DIST)) {
+        fix15 dist2 = multfix15(dx,dx) + multfix15(dy,dy) ;
 
-      // distance > 0 guards the divide if the ball lands exactly on the peg center
-      if ((distance < COLLIDE_DIST) && (distance > 0)) {
-        // Normal vector pointing from peg to ball. One 64-bit divide for
-        // 1/distance, then two cheap multiplies (was two divides)
-        fix15 inv_dist = divfix(int2fix15(1), distance) ;
-        fix15 normal_x = multfix15(dx, inv_dist) ;
-        fix15 normal_y = multfix15(dy, inv_dist) ;
+        // dist2 > 0 guards the divide if the ball lands exactly on the peg center
+        if ((dist2 < COLLIDE_DIST2) && (dist2 > 0)) {
+          // Normal vector pointing from peg to ball. 1/distance in single-
+          // precision float: the M33 FPU does sqrt and divide in hardware,
+          // while divfix is a 64-bit software divide. dx*inv is already fix15.
+          float inv_dist = 1.0f / sqrtf(fix2float15(dist2)) ;
+          fix15 normal_x = (fix15)(dx * inv_dist) ;
+          fix15 normal_y = (fix15)(dy * inv_dist) ;
 
-        // Velocity component along the normal: < 0 means moving INTO the peg
-        fix15 v_dot_n = multfix15(normal_x, b->vx) + multfix15(normal_y, b->vy) ;
+          // Velocity component along the normal: < 0 means moving INTO the peg
+          fix15 v_dot_n = multfix15(normal_x, b->vx) + multfix15(normal_y, b->vy) ;
 
-        // Teleport outside the collision distance, along the normal
-        b->x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
-        b->y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
+          // Teleport outside the collision distance, along the normal
+          b->x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
+          b->y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
 
-        // Only reflect if approaching
-        if (v_dot_n < 0) {
-          fix15 intermediate_term = multfix15(int2fix15(-2), v_dot_n) ;
-          b->vx = b->vx + multfix15(normal_x, intermediate_term) ;
-          b->vy = b->vy + multfix15(normal_y, intermediate_term) ;
+          // Only reflect if approaching
+          if (v_dot_n < 0) {
+            fix15 intermediate_term = multfix15(int2fix15(-2), v_dot_n) ;
+            b->vx = b->vx + multfix15(normal_x, intermediate_term) ;
+            b->vy = b->vy + multfix15(normal_y, intermediate_term) ;
 
-          // Did we just strike a new peg
-          if (peg != b->last_peg) {
-            playPegSound() ;
-            b->vx = multfix15(bounciness, b->vx) ;
-            b->vy = multfix15(bounciness, b->vy) ;
-            b->last_peg = peg ;
+            // Did we just strike a new peg
+            if (peg != b->last_peg) {
+              playPegSound() ;
+              b->vx = multfix15(bounciness, b->vx) ;
+              b->vy = multfix15(bounciness, b->vy) ;
+              b->last_peg = peg ;
+            }
           }
         }
       }
