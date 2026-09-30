@@ -55,8 +55,8 @@
 // === the fixed point macros ========================================
 typedef signed int fix15 ;
 #define multfix15(a,b) ((fix15)((((signed long long)(a))*((signed long long)(b)))>>15))
-#define float2fix15(a) ((fix15)((a)*32768.0)) // 2^15
-#define fix2float15(a) ((float)(a)/32768.0)
+#define float2fix15(a) ((fix15)((a)*32768.0f)) // 2^15 (float, not double: the M33 FPU is single-precision only)
+#define fix2float15(a) ((float)(a)/32768.0f)
 #define absfix15(a) abs(a) 
 #define int2fix15(a) ((fix15)(a << 15))
 #define fix2int15(a) ((int)(a >> 15))
@@ -75,17 +75,34 @@ typedef signed int fix15 ;
 // =====================================================================
 // === ROTARY ENCODER INTERFACE ========================================
 // =====================================================================
-#define ROT_A 12
-#define ROT_B 11
+#define ROT_A  12
+#define ROT_B  11
+#define ROT_SW 10   // push button: reads HIGH while pressed
 
-// The encoder sets the number of balls: one click = one ball
+// The encoder has two modes, toggled by the push button:
+//   ROT_MODE_BALLS  - one click = +/- BALL_STEP balls
+//   ROT_MODE_BOUNCE - one click = +/- BOUNCE_STEP (in hundredths) bounciness
+#define ROT_MODE_BALLS  0
+#define ROT_MODE_BOUNCE 1
+volatile int rot_mode = ROT_MODE_BALLS ;
+
 #define MIN_BALLS  1
-#define MAX_BALLS  5000
+#define MAX_BALLS  8000
 #define INIT_BALLS 100
+#define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
+
+// Bounciness is kept in hundredths (0..100) for the knob and the display,
+// and mirrored as fix15 for the physics
+#define MIN_BOUNCE  0
+#define MAX_BOUNCE  100
+#define INIT_BOUNCE 30
+#define BOUNCE_STEP 5
+volatile int   bounce_pct = INIT_BOUNCE ;
+volatile fix15 bounciness = (INIT_BOUNCE << 15) / 100 ;
+
 static volatile uint8_t rot_prev_state = 3 ; // (A<<1)|B ; 3 = rest (both high)
 static volatile int8_t  rot_accum = 0 ;      // steps taken since last rest
-static volatile int rot_mode = 0; // 0 - number of balls, 1 - bounciness
 
 // Lookup table: index = (prev_state<<2)|curr_state.
 // +1 = one valid step clockwise, -1 = one valid step counterclockwise,
@@ -97,6 +114,41 @@ static const int8_t rot_table[16] = {
 /* prev=3(11) */  0, +1, -1,  0
 } ;
 
+// Apply one detent of the knob (dir = +1 CW, -1 CCW) to whichever value
+// the current mode controls, clamped to its range
+static void rot_click(int dir)
+{
+  if (rot_mode == ROT_MODE_BALLS) {
+    rot_counter = MIN(MAX(rot_counter + dir * BALL_STEP, MIN_BALLS), MAX_BALLS) ;
+  } else {
+    bounce_pct = MIN(MAX(bounce_pct + dir * BOUNCE_STEP, MIN_BOUNCE), MAX_BOUNCE) ;
+    bounciness = (bounce_pct << 15) / 100 ;
+  }
+}
+
+// Push button, polled once per frame from the animation thread. Sampling
+// every ~16 ms is slower than contact bounce (a few ms), so each press and
+// each release shows up as exactly one transition -- no timer needed.
+// Toggles the mode on each press (low -> high), whatever the hold time.
+//
+// RP2350 erratum E9: with the internal pull-down, a pin driven high can
+// latch at ~2 V and keep reading 1 after the button is released. Keeping
+// the input buffer OFF between polls lets the pull-down drain the pin, so
+// enable it only long enough to take each sample.
+static void pollButton(void)
+{
+  static int sw_prev = 0 ;
+  gpio_set_input_enabled(ROT_SW, true) ;
+  busy_wait_us(1) ;                    // let the input synchronizer settle
+  int sw = gpio_get(ROT_SW) ;
+  gpio_set_input_enabled(ROT_SW, false) ;
+  if (sw && !sw_prev) {
+    rot_mode = (rot_mode == ROT_MODE_BALLS) ? ROT_MODE_BOUNCE : ROT_MODE_BALLS ;
+    rot_accum = 0 ;                    // don't carry a partial turn into the new mode
+  }
+  sw_prev = sw ;
+}
+
 // Fires on every edge of EITHER A or B.
 void rot_ISR(uint gpio, uint32_t events)
 {
@@ -105,34 +157,17 @@ void rot_ISR(uint gpio, uint32_t events)
   rot_prev_state = curr_state ;
 
   if (curr_state == 3) {               // landed back at rest (a full click, or none)
-    // completed one click; clamp here so extra turns past the limits don't wind up
-    if      ((rot_accum >=  4) && (rot_counter < MAX_BALLS)) rot_counter+= 100 ;  // CW
-    else if ((rot_accum <= -4) && (rot_counter > MIN_BALLS)) rot_counter-= 100 ;  // CCW
+    if      (rot_accum >=  4) rot_click(+1) ;  // CW
+    else if (rot_accum <= -4) rot_click(-1) ;  // CCW
     rot_accum = 0 ;                    // discard partial turns / bounce
   }
-  // if(rot_mode == 0){ // adjusts number of balls
-    // uint8_t curr_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
-    // rot_accum += rot_table[(rot_prev_state << 2) | curr_state] ;
-    // rot_prev_state = curr_state ;
-
-    // if (curr_state == 3) {               // landed back at rest (a full click, or none)
-    //   // completed one click; clamp here so extra turns past the limits don't wind up
-    //   if      ((rot_accum >=  4) && (rot_counter < MAX_BALLS)) rot_counter+= 100 ;  // CW
-    //   else if ((rot_accum <= -4) && (rot_counter > MIN_BALLS)) rot_counter-= 100 ;  // CCW
-    //   rot_accum = 0 ;                    // discard partial turns / bounce
-  //   }
-  // } else { // adjusts bounciness parameter
-
-
-  // }
-
 }
 
 // =====================================================================
 // === GALTON BOARD ====================================================
 // =====================================================================
 #define GRAVITY      float2fix15(0.37)
-#define BOUNCINESS   float2fix15(0.3)
+// bounciness (set by the knob) is defined with the rotary encoder above
 #define BALL_RADIUS  4
 #define PEG_RADIUS   6
 #define PEG_VERT_SEP 19
@@ -381,9 +416,11 @@ void updateBall(ball_t* b)
 
       // distance > 0 guards the divide if the ball lands exactly on the peg center
       if ((distance < COLLIDE_DIST) && (distance > 0)) {
-        // Normal vector pointing from peg to ball
-        fix15 normal_x = divfix(dx, distance) ;
-        fix15 normal_y = divfix(dy, distance) ;
+        // Normal vector pointing from peg to ball. One 64-bit divide for
+        // 1/distance, then two cheap multiplies (was two divides)
+        fix15 inv_dist = divfix(int2fix15(1), distance) ;
+        fix15 normal_x = multfix15(dx, inv_dist) ;
+        fix15 normal_y = multfix15(dy, inv_dist) ;
 
         // Velocity component along the normal: < 0 means moving INTO the peg
         fix15 v_dot_n = multfix15(normal_x, b->vx) + multfix15(normal_y, b->vy) ;
@@ -401,8 +438,8 @@ void updateBall(ball_t* b)
           // Did we just strike a new peg
           if (peg != b->last_peg) {
             playPegSound() ;
-            b->vx = multfix15(BOUNCINESS, b->vx) ;
-            b->vy = multfix15(BOUNCINESS, b->vy) ;
+            b->vx = multfix15(bounciness, b->vx) ;
+            b->vy = multfix15(bounciness, b->vy) ;
             b->last_peg = peg ;
           }
         }
@@ -425,7 +462,7 @@ void updateBall(ball_t* b)
 }
 
 // the color of the boid
-char color = WHITE ;
+char color = CYAN ;
 
 // Create a semaphore
 semaphore_t draw_semaphore ;   // core 0 -> core 1: "buffer cleared, start your share"
@@ -445,11 +482,59 @@ volatile uint32_t core0_us = 0 ;
 volatile uint32_t core1_us = 0 ;
 #define FRAME_BUDGET_US 16667   // DOUBLE_BUFFER_60 -> 60 fps
 
+// === FAST BALL DRAW ===
+// fillCircle() recomputes the same shape for every ball (5 software square
+// roots + 10 drawHLine calls, each with its own range checks and a tiny
+// memset). The radius never changes, so compute each row's half-width once
+// and write the pixels straight into the frame buffer.
+extern char * current_draw_buffer ;     // defined in vga16_graphics_v3.c
+int32_t sqrt_i32(int32_t v) ;           // defined in vga16_graphics_v3.c
+static int ball_dx[BALL_RADIUS + 1] ;   // half-width of row i above/below center
+
+// Same formula as fillCircle(), so the balls look identical
+void initBallSprite(void)
+{
+  int r2 = BALL_RADIUS * BALL_RADIUS + BALL_RADIUS ;
+  for (int i = 0; i <= BALL_RADIUS; i++) ball_dx[i] = sqrt_i32(r2 - i * i) ;
+}
+
+// Fill pixels [x, x+w) of one 640-px row (320 bytes, 2 px/byte:
+// even x in the low nibble, odd x in the high nibble -- same as drawPixel)
+static inline void drawSpan(unsigned char* row, int x, int w, unsigned char c)
+{
+  if (x & 1) {                                   // lone pixel at the left
+    row[x >> 1] = (row[x >> 1] & 0x0F) | (c << 4) ;
+    x++ ; w-- ;
+  }
+  unsigned char* p = row + (x >> 1) ;
+  unsigned char both = c | (c << 4) ;
+  for (; w >= 2; w -= 2) *p++ = both ;           // whole bytes
+  if (w) *p = (*p & 0xF0) | c ;                  // lone pixel at the right
+}
+
+static inline void drawBall(int x0, int y0, char c)
+{
+  // Fast path only when the whole ball is on screen; otherwise fall back
+  // to fillCircle(), which handles the clipping
+  if ((x0 - BALL_RADIUS < 0) || (x0 + BALL_RADIUS > 639) ||
+      (y0 - BALL_RADIUS < 0) || (y0 + BALL_RADIUS > 479)) {
+    fillCircle(x0, y0, BALL_RADIUS, c) ;
+    return ;
+  }
+  unsigned char* center = (unsigned char*)current_draw_buffer + 320 * y0 ;
+  drawSpan(center, x0 - ball_dx[0], 2 * ball_dx[0], c) ;
+  for (int i = 1; i <= BALL_RADIUS; i++) {
+    int dx = ball_dx[i] ;
+    drawSpan(center + 320 * i, x0 - dx, 2 * dx, c) ;   // row below center
+    drawSpan(center - 320 * i, x0 - dx, 2 * dx, c) ;   // row above center
+  }
+}
+
 // [MULTICORE] new: physics + draw for one ball, shared by both cores
 static inline void updateAndDrawBall(ball_t* b)
 {
   updateBall(b) ;
-  fillCircle(fix2int15(b->x), fix2int15(b->y), BALL_RADIUS, color) ;
+  drawBall(fix2int15(b->x), fix2int15(b->y), color) ;
 }
 
 // ==================================================
@@ -491,6 +576,7 @@ static PT_THREAD (protothread_anim(struct pt *pt))
 
     // === GALTON BOARD: build the peg table (balls are added in the loop) ===
     initPegs() ;
+    initBallSprite() ;
 
     static char text_str[40] ;
 
@@ -506,6 +592,7 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       // updates a ball that core 0 is re-spawning, and it sees final
       // num_balls / split values for this frame.
       // === ROTARY ENCODER: match the ball count to the knob ===
+      pollButton() ;                 // push button: toggle knob mode on press
       int target = rot_counter ;     // read the ISR's value once
       // Adding balls: all new ones spawn at the same spot above the top peg
       for (int i = num_balls; i < target; i++) {
@@ -531,9 +618,10 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       for (int i = 0; i < split; i++) {
         updateAndDrawBall(&balls[i]) ;
       }
-      core0_us = time_us_32() - t0 ;
 
       // === TEXT ===
+      // (shows last frame's core times; core0_us is taken after the text so
+      // it includes the text cost too -- it's part of core 0's frame)
       sprintf(text_str, "Balls:  %d", num_balls) ;
       drawTextVGA437(10, 10, text_str, WHITE, BLACK) ;
       // [MULTICORE] changed: was total_fallen, now the sum of both cores' counts
@@ -552,6 +640,12 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       drawTextVGA437(10, 90, text_str, WHITE, BLACK) ;
       sprintf(text_str, "Spare: %5d us", (int)FRAME_BUDGET_US - (int)slowest) ;
       drawTextVGA437(10, 110, text_str, WHITE, BLACK) ;
+      // Knob mode (toggled by the push button) and the bounciness value
+      sprintf(text_str, "Knob:   %s", (rot_mode == ROT_MODE_BALLS) ? "BALLS " : "BOUNCE") ;
+      drawTextVGA437(10, 130, text_str, WHITE, BLACK) ;
+      sprintf(text_str, "Bounce: %d.%02d", bounce_pct / 100, bounce_pct % 100) ;
+      drawTextVGA437(10, 150, text_str, WHITE, BLACK) ;
+      core0_us = time_us_32() - t0 ;
 
       // [MULTICORE] new: wait for core 1 to finish its share before looping
       // back, so the next clearLowFrame can't wipe a buffer it's still drawing
@@ -631,6 +725,11 @@ int main(){
   rot_prev_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
   gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &rot_ISR);
   gpio_set_irq_enabled(ROT_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+  // Push button: active high, so pull down. Polled by pollButton(), no IRQ.
+  gpio_init(ROT_SW);
+  gpio_set_dir(ROT_SW, GPIO_IN);
+  gpio_pull_down(ROT_SW);
+  gpio_set_input_enabled(ROT_SW, false);  // E9 workaround: see pollButton()
 
   // Initialize the semaphore
   // Arguments: pointer to sem, initial count, max count

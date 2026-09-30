@@ -55,4 +55,11 @@ target_link_libraries(  VGA_Animation_Demo
                         hardware_pll)
 
 # must match with executable name
+# Overclocking: flash runs at clk_sys / PICO_FLASH_SPI_CLKDIV, and the Pico 2
+# default of 2 would push the flash to 150 MHz at 300 MHz sys (spec ~133 MHz).
+# Build a boot stage 2 with a divider of 4 (75 MHz at 300 MHz sys).
+pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
+target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
+pico_set_boot_stage2(VGA_Animation_Demo slower_boot2)
+
 pico_add_extra_outputs(VGA_Animation_Demo)
