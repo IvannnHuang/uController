@@ -63,11 +63,11 @@ typedef signed int fix15 ;
 #define char2fix15(a) (fix15)(((fix15)(a)) << 15)
 #define divfix(a,b) (fix15)(div_s64s64( (((signed long long)(a)) << 15), ((signed long long)(b))))
 
-// Wall detection
-#define hitBottom(b) (b>int2fix15(380))
-#define hitTop(b) (b<int2fix15(100))
-#define hitLeft(a) (a<int2fix15(100))
-#define hitRight(a) (a>int2fix15(540))
+// // Wall detection
+// #define hitBottom(b) (b>int2fix15(380))
+// #define hitTop(b) (b<int2fix15(100))
+// #define hitLeft(a) (a<int2fix15(100))
+// #define hitRight(a) (a>int2fix15(540))
 
 // uS per frame
 #define FRAME_RATE 33000
@@ -80,11 +80,12 @@ typedef signed int fix15 ;
 
 // The encoder sets the number of balls: one click = one ball
 #define MIN_BALLS  1
-#define MAX_BALLS  100
-#define INIT_BALLS 10
+#define MAX_BALLS  5000
+#define INIT_BALLS 100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
 static volatile uint8_t rot_prev_state = 3 ; // (A<<1)|B ; 3 = rest (both high)
 static volatile int8_t  rot_accum = 0 ;      // steps taken since last rest
+static volatile int rot_mode = 0; // 0 - number of balls, 1 - bounciness
 
 // Lookup table: index = (prev_state<<2)|curr_state.
 // +1 = one valid step clockwise, -1 = one valid step counterclockwise,
@@ -105,17 +106,33 @@ void rot_ISR(uint gpio, uint32_t events)
 
   if (curr_state == 3) {               // landed back at rest (a full click, or none)
     // completed one click; clamp here so extra turns past the limits don't wind up
-    if      ((rot_accum >=  4) && (rot_counter < MAX_BALLS)) rot_counter++ ;  // CW
-    else if ((rot_accum <= -4) && (rot_counter > MIN_BALLS)) rot_counter-- ;  // CCW
+    if      ((rot_accum >=  4) && (rot_counter < MAX_BALLS)) rot_counter+= 100 ;  // CW
+    else if ((rot_accum <= -4) && (rot_counter > MIN_BALLS)) rot_counter-= 100 ;  // CCW
     rot_accum = 0 ;                    // discard partial turns / bounce
   }
+  // if(rot_mode == 0){ // adjusts number of balls
+    // uint8_t curr_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
+    // rot_accum += rot_table[(rot_prev_state << 2) | curr_state] ;
+    // rot_prev_state = curr_state ;
+
+    // if (curr_state == 3) {               // landed back at rest (a full click, or none)
+    //   // completed one click; clamp here so extra turns past the limits don't wind up
+    //   if      ((rot_accum >=  4) && (rot_counter < MAX_BALLS)) rot_counter+= 100 ;  // CW
+    //   else if ((rot_accum <= -4) && (rot_counter > MIN_BALLS)) rot_counter-= 100 ;  // CCW
+    //   rot_accum = 0 ;                    // discard partial turns / bounce
+  //   }
+  // } else { // adjusts bounciness parameter
+
+
+  // }
+
 }
 
 // =====================================================================
 // === GALTON BOARD ====================================================
 // =====================================================================
 #define GRAVITY      float2fix15(0.37)
-#define BOUNCINESS   float2fix15(0.5)
+#define BOUNCINESS   float2fix15(0.3)
 #define BALL_RADIUS  4
 #define PEG_RADIUS   6
 #define PEG_VERT_SEP 19
@@ -169,9 +186,6 @@ int nearestPeg(fix15 x, fix15 y)
   return row * (row + 1) / 2 + col ;
 }
 
-// === BALLS ===
-#define SPAWN_GAP    30   // vertical spacing (px) of newly added balls, so they don't fall as one clump
-
 typedef struct {
   fix15 x, y ;        // position
   fix15 vx, vy ;      // velocity (px/frame)
@@ -181,7 +195,7 @@ typedef struct {
 
 ball_t balls[MAX_BALLS] ;
 int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
-int total_fallen = 0 ;  // balls that have passed the bottom row since boot
+// [MULTICORE] total_fallen removed -- replaced by per-core fallen_core[] below
 
 // === HISTOGRAM ===
 // 16 rows -> 17 landing spots: the 15 gaps between bottom-row pegs, plus one
@@ -198,15 +212,20 @@ int total_fallen = 0 ;  // balls that have passed the bottom row since boot
 #define HIST_H         (HIST_BOTTOM - HIST_TOP + 1)
 #define BAR_W          (PEG_HORZ_SEP - 4)
 
-int bins[NUM_BINS] ;
+// [MULTICORE] was: int bins[NUM_BINS] ; (and a single total_fallen counter)
+// Both cores bin balls now, and ++ isn't atomic across cores, so each core
+// keeps its own counts. Index [get_core_num()] to write, sum both to read.
+int bins_core[2][NUM_BINS] ;
+int fallen_core[2] ;
 
-// Drop the ball from top-center with zero y-velocity and a small random
+// Drop the ball from just above the top peg with zero y-velocity and a small random
 // x-velocity in [-0.25, 0.25) so it doesn't land on the peg dead-center
 void spawnBall(ball_t* b)
 {
   b->x  = int2fix15(SCREEN_W / 2) ;
-  b->y  = int2fix15(0) ;
+  b->y  = int2fix15(BOARD_TOP_Y - 50) ;
   b->vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  // b->vx = (rand() & 0xffff) - int2fix15(1);   // random between [-1, 1]
   b->vy = 0 ;
   b->last_peg = -1 ;
   b->binned = 0 ;
@@ -218,16 +237,22 @@ void binBall(ball_t* b)
   int xi = fix2int15(b->x) - BOTTOM_LEFT_X ;          // relative to leftmost bottom peg
   int bin = (xi < 0) ? 0 : (xi / PEG_HORZ_SEP) + 1 ;  // left of it = bin 0
   if (bin > NUM_BINS - 1) bin = NUM_BINS - 1 ;        // right of rightmost peg
-  bins[bin]++ ;
-  total_fallen++ ;
+  // [MULTICORE] was: bins[bin]++ ; total_fallen++ ;
+  // count into this core's own arrays so the two cores never race
+  int core = get_core_num() ;
+  bins_core[core][bin]++ ;
+  fallen_core[core]++ ;
   b->binned = 1 ;
 }
 
 // Draw the histogram under the board, scaled so the fullest bin is HIST_H tall
 void drawHistogram()
 {
+  // [MULTICORE] was: read bins[k] directly. Now sum the two cores' counts once.
+  int bins[NUM_BINS] ;
   int max_count = 0 ;
   for (int k = 0; k < NUM_BINS; k++) {
+    bins[k] = bins_core[0][k] + bins_core[1][k] ;
     if (bins[k] > max_count) max_count = bins[k] ;
   }
   if (max_count == 0) return ;   // nothing to draw yet
@@ -395,11 +420,6 @@ void updateBall(ball_t* b)
     return ;
   }
 
-  // Bounce off the screen's sides. (No top bounce: balls start above the
-  // screen at negative y and fall in.)
-  if ((b->x < 0)                 && (b->vx < 0)) b->vx = -b->vx ;
-  if ((b->x > int2fix15(SCREEN_W)) && (b->vx > 0)) b->vx = -b->vx ;
-
   // Apply gravity
   b->vy = b->vy + GRAVITY ;
 }
@@ -408,7 +428,29 @@ void updateBall(ball_t* b)
 char color = WHITE ;
 
 // Create a semaphore
-semaphore_t draw_semaphore ;
+semaphore_t draw_semaphore ;   // core 0 -> core 1: "buffer cleared, start your share"
+
+// [MULTICORE] new: core 1 -> core 0: "my share of this frame is drawn".
+// Keeps core 0 from clearing the next frame while core 1 is still drawing.
+semaphore_t done_semaphore ;
+
+// [MULTICORE] new: balls [0, split) run on core 0, [split, num_balls) on core 1.
+// Core 1 also draws the 136 pegs, so core 0 takes more than half the balls.
+// Tune SPLIT_PCT using the per-core times shown on screen.
+#define SPLIT_PCT 60
+volatile int split = 0 ;
+
+// [MULTICORE] new: how long each core spent on its share last frame (us)
+volatile uint32_t core0_us = 0 ;
+volatile uint32_t core1_us = 0 ;
+#define FRAME_BUDGET_US 16667   // DOUBLE_BUFFER_60 -> 60 fps
+
+// [MULTICORE] new: physics + draw for one ball, shared by both cores
+static inline void updateAndDrawBall(ball_t* b)
+{
+  updateBall(b) ;
+  fillCircle(fix2int15(b->x), fix2int15(b->y), BALL_RADIUS, color) ;
+}
 
 // ==================================================
 // === users serial input thread
@@ -455,42 +497,65 @@ static PT_THREAD (protothread_anim(struct pt *pt))
     while(1) {
       // Wait for the signal that the buffer's changed
       PT_YIELD_UNTIL(pt, draw_start_signal()) ;
-      // Clear the buffer
-      clearLowFrame(0, BLACK);
-      // Signal core 1 that it can start drawing
-      PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
+      // [MULTICORE] new: time core 0's share of the frame
+      static uint32_t t0 ;
+      t0 = time_us_32() ;
 
+      // [MULTICORE] moved: the encoder / spawn bookkeeping used to run AFTER
+      // signaling core 1. It now runs BEFORE the signal, so core 1 never
+      // updates a ball that core 0 is re-spawning, and it sees final
+      // num_balls / split values for this frame.
       // === ROTARY ENCODER: match the ball count to the knob ===
       int target = rot_counter ;     // read the ISR's value once
-      // Adding balls: spawn each new one, stacked SPAWN_GAP px apart above
-      // the screen so they fall in one after another
+      // Adding balls: all new ones spawn at the same spot above the top peg
       for (int i = num_balls; i < target; i++) {
         spawnBall(&balls[i]) ;
-        balls[i].y = int2fix15(-(i - num_balls) * SPAWN_GAP) ;
       }
       // Removing balls: the extras just stop being updated/drawn
       num_balls = target ;
+      // [MULTICORE] new: decide which balls each core owns this frame
+      split = (num_balls * SPLIT_PCT) / 100 ;
 
-      // === GALTON BOARD ===
-      for (int i = 0; i < NUM_PEGS; i++) {
-        fillCircle(fix2int15(peg_x[i]), fix2int15(peg_y[i]), PEG_RADIUS, WHITE) ;
-      }
-      for (int i = 0; i < num_balls; i++) {
-        updateBall(&balls[i]) ;
-      }
-      // histogram first, so balls falling through it are drawn on top
+      // Clear the buffer
+      clearLowFrame(0, BLACK);
+      // [MULTICORE] moved: histogram is now drawn BEFORE core 1 starts, so
+      // balls from both cores are guaranteed to land on top of the bars
       drawHistogram() ;
-      for (int i = 0; i < num_balls; i++) {
-        fillCircle(fix2int15(balls[i].x), fix2int15(balls[i].y), BALL_RADIUS, color) ;
+      // Signal core 1 that it can start drawing
+      PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
+
+      // [MULTICORE] removed from core 0: the 136-peg draw loop (now on core 1)
+
+      // [MULTICORE] changed: was update ALL balls, then draw ALL balls.
+      // Core 0 now updates + draws only balls [0, split); core 1 does the rest.
+      for (int i = 0; i < split; i++) {
+        updateAndDrawBall(&balls[i]) ;
       }
+      core0_us = time_us_32() - t0 ;
 
       // === TEXT ===
       sprintf(text_str, "Balls:  %d", num_balls) ;
       drawTextVGA437(10, 10, text_str, WHITE, BLACK) ;
-      sprintf(text_str, "Fallen: %d", total_fallen) ;
+      // [MULTICORE] changed: was total_fallen, now the sum of both cores' counts
+      sprintf(text_str, "Fallen: %d", fallen_core[0] + fallen_core[1]) ;
       drawTextVGA437(10, 30, text_str, WHITE, BLACK) ;
       sprintf(text_str, "Time:   %d s", (int)(time_us_64() / 1000000)) ;
       drawTextVGA437(10, 50, text_str, WHITE, BLACK) ;
+      // [MULTICORE] new: per-core work time and the spare time left in the
+      // frame. Spare time is set by the slower core; if it's near 0, you're
+      // at the ball limit. Balance the two by tuning SPLIT_PCT.
+      static uint32_t slowest ;
+      slowest = MAX(core0_us, core1_us) ;
+      sprintf(text_str, "Core0: %5d us", (int)core0_us) ;
+      drawTextVGA437(10, 70, text_str, WHITE, BLACK) ;
+      sprintf(text_str, "Core1: %5d us", (int)core1_us) ;
+      drawTextVGA437(10, 90, text_str, WHITE, BLACK) ;
+      sprintf(text_str, "Spare: %5d us", (int)FRAME_BUDGET_US - (int)slowest) ;
+      drawTextVGA437(10, 110, text_str, WHITE, BLACK) ;
+
+      // [MULTICORE] new: wait for core 1 to finish its share before looping
+      // back, so the next clearLowFrame can't wipe a buffer it's still drawing
+      PT_SEM_SDK_WAIT(pt, &done_semaphore) ;
 
      // NEVER exit while
     } // END WHILE(1)
@@ -507,6 +572,25 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
     while(1) {
       // Wait for the signal from core 0
       PT_SEM_SDK_WAIT(pt, &draw_semaphore) ;
+      // [MULTICORE] new: everything below is core 1's share of the frame
+      static uint32_t t1 ;
+      t1 = time_us_32() ;
+
+      // [MULTICORE] moved from core 0: draw the pegs. Balls are always pushed
+      // out to TELEPORT_DIST, so they never overlap a peg and draw order
+      // between the two cores doesn't matter.
+      for (int i = 0; i < NUM_PEGS; i++) {
+        fillCircle(fix2int15(peg_x[i]), fix2int15(peg_y[i]), PEG_RADIUS, WHITE) ;
+      }
+
+      // [MULTICORE] new: update + draw balls [split, num_balls)
+      for (int i = split; i < num_balls; i++) {
+        updateAndDrawBall(&balls[i]) ;
+      }
+
+      core1_us = time_us_32() - t1 ;
+      // [MULTICORE] new: tell core 0 this frame's share is done
+      PT_SEM_SDK_SIGNAL(pt, &done_semaphore) ;
     } // END WHILE(1)
   PT_END(pt);
 } // animation thread
@@ -551,6 +635,8 @@ int main(){
   // Initialize the semaphore
   // Arguments: pointer to sem, initial count, max count
   sem_init(&draw_semaphore, 0, 1) ;
+  // [MULTICORE] new: core 1 -> core 0 "done" semaphore
+  sem_init(&done_semaphore, 0, 1) ;
 
   // start core 1 
   multicore_reset_core1();
