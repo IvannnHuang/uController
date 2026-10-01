@@ -784,13 +784,30 @@ void core1_main(){
 // ========================================
 // USE ONLY C-sdk library
 int main(){
-  // Overclock 150 -> 300 MHz. The VGA PIO timing depends on this: see the
+  // Overclock 150 -> 350 MHz. The VGA PIO timing depends on this: see the
   // clkdivs in hsync.pio / vsync.pio and the pixel holds in rgb.pio.
   // The RP2350 doesn't raise the core voltage on its own, so do it first
   // and let it settle (1.30 V is the max without unlocking the regulator).
   vreg_set_voltage(VREG_VOLTAGE_1_30) ;
   busy_wait_us(10000) ;
-  set_sys_clock_khz(300000, true) ;
+  // 350 MHz needs a 1050 MHz VCO (/3 /1), which isn't a multiple of the
+  // 12 MHz crystal, so set_sys_clock_khz() (reference divider 1 only) can't
+  // make it. Same steps as the SDK's set_sys_clock_pll(), but with reference
+  // divider 2: 6 MHz reference x 175 = 1050 MHz.
+  // Run clk_sys from the 48 MHz USB PLL while sys PLL is reprogrammed
+  clock_configure_undivided(clk_sys,
+                            CLOCKS_CLK_SYS_CTRL_SRC_VALUE_CLKSRC_CLK_SYS_AUX,
+                            CLOCKS_CLK_SYS_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                            USB_CLK_HZ) ;
+  pll_init(pll_sys, 2, 1050 * MHZ, 3, 1) ;
+  clock_configure_undivided(clk_sys,
+                            CLOCKS_CLK_SYS_CTRL_SRC_VALUE_CLKSRC_CLK_SYS_AUX,
+                            CLOCKS_CLK_SYS_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
+                            350 * MHZ) ;
+  // Peripherals (UART, SPI) on the fixed 48 MHz USB PLL, as set_sys_clock_khz() did
+  clock_configure_undivided(clk_peri, 0,
+                            CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                            USB_CLK_HZ) ;
   // initialize stio
   stdio_init_all() ;
 
