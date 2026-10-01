@@ -82,7 +82,7 @@ typedef signed int fix15 ;
 volatile int rot_mode = ROT_MODE_BALLS ;
 
 #define MIN_BALLS  1
-#define MAX_BALLS  16000   // 192 KB of balls at 12 bytes/ball (~17k is the RAM ceiling)
+#define MAX_BALLS  13000   // CPU limit at 350 MHz (Spare ~0 us); RAM would allow ~17k at 12 bytes/ball
 #define INIT_BALLS 100
 #define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
@@ -156,7 +156,7 @@ void rot_ISR(uint gpio, uint32_t events)
 // =====================================================================
 #define GRAVITY      float2fix15(0.37)
 // bounciness (set by the knob) is defined with the rotary encoder above
-#define BALL_RADIUS  4
+#define BALL_RADIUS  4   // max 4: drawSpan() writes at most 4 bytes per span
 #define PEG_RADIUS   6
 #define PEG_VERT_SEP 19
 #define PEG_HORZ_SEP 38
@@ -196,7 +196,7 @@ void initPegs()
 // Index of the peg nearest (x, y), or -1 if the ball isn't within half a
 // spacing of any peg. Rows are 19 px apart and the collision distance is 10,
 // so the nearest peg is the only one the ball can be touching.
-int nearestPeg(fix15 x, fix15 y)
+int __not_in_flash_func(nearestPeg)(fix15 x, fix15 y)
 {
   int yi = fix2int15(y) - BOARD_TOP_Y + (PEG_VERT_SEP / 2) ;
   if (yi < 0) return -1 ;                  // above the board
@@ -297,7 +297,7 @@ void spawnBall(ball_t* b)
 
 // Count a ball that just passed the bottom row: which gap did it go through?
 // (the caller marks the ball as binned)
-void binBall(fix15 x)
+void __not_in_flash_func(binBall)(fix15 x)
 {
   int xi = fix2int15(x) - BOTTOM_LEFT_X ;          // relative to leftmost bottom peg
   int bin = (xi < 0) ? 0 : (xi / PEG_HORZ_SEP) + 1 ;  // left of it = bin 0
@@ -414,14 +414,14 @@ void initPegSound()
 }
 
 // Peg-strike sound. drop sound if bounces overlapped
-void playPegSound()
+void __not_in_flash_func(playPegSound)()
 {
   if (dma_channel_is_busy(snd_data_chan) || dma_channel_is_busy(snd_ctrl_chan)) return ;
   dma_start_channel_mask(1u << snd_ctrl_chan) ;
 }
 
 // One frame of ball physics 
-void updateBall(ball_t* b)
+void __not_in_flash_func(updateBall)(ball_t* b)
 {
   // Unpack the ball into locals; packed back at the end
   fix15 x       = BALL_POS(b->xm) ;
@@ -584,8 +584,16 @@ static inline void drawSpan(unsigned char* row, int x, int w, unsigned char c)
   }
   unsigned char* p = row + (x >> 1) ;
   unsigned char both = c | (c << 4) ;
-  for (; w >= 2; w -= 2) *p++ = both ;           // whole bytes
-  if (w) *p = (*p & 0xF0) | c ;                  // lone pixel at the right
+  // Whole bytes. A span is at most 2*BALL_RADIUS = 8 px = 4 bytes, so write
+  // them out: GCC turns a byte loop into a memset() call, which is slow for
+  // 1-4 bytes and lives in flash (this code runs from SRAM)
+  int n = w >> 1 ;
+  if (n > 0) p[0] = both ;
+  if (n > 1) p[1] = both ;
+  if (n > 2) p[2] = both ;
+  if (n > 3) p[3] = both ;
+  p += n ;
+  if (w & 1) *p = (*p & 0xF0) | c ;              // lone pixel at the right
 }
 
 // One row of the ring: the two sides, or the whole span where there's no hole
@@ -621,6 +629,17 @@ static inline void updateAndDrawBall(ball_t* b)
 {
   updateBall(b) ;
   drawBall(fix2int15(BALL_POS(b->xm)), fix2int15(BALL_POS(b->ym)), color) ;
+}
+
+// Update + draw balls [from, to). Both cores run their share through here.
+// It and the hot functions it calls (updateBall, nearestPeg, binBall,
+// playPegSound -- the inline draw helpers get inlined into it) live in SRAM
+// via __not_in_flash_func: run from flash, the two cores would share one
+// 16 KB XIP cache and stall on each other's misses.
+// (no_inline, or -Ofast would inline it back into the flash-resident threads)
+void __no_inline_not_in_flash_func(updateAndDrawRange)(int from, int to)
+{
+  for (int i = from; i < to; i++) updateAndDrawBall(&balls[i]) ;
 }
 
 // ==================================================
@@ -711,9 +730,7 @@ static PT_THREAD (protothread_anim(struct pt *pt))
 
       // [MULTICORE] changed: was update ALL balls, then draw ALL balls.
       // Core 0 now updates + draws only balls [0, split); core 1 does the rest.
-      for (int i = 0; i < split; i++) {
-        updateAndDrawBall(&balls[i]) ;
-      }
+      updateAndDrawRange(0, split) ;
 
       // === TEXT ===
       // (shows last frame's core times; core0_us is taken after the text so
@@ -788,9 +805,7 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
       }
 
       // [MULTICORE] new: update + draw balls [split, num_balls)
-      for (int i = split; i < num_balls; i++) {
-        updateAndDrawBall(&balls[i]) ;
-      }
+      updateAndDrawRange(split, num_balls) ;
 
       core1_us = time_us_32() - t1 ;
       // [MULTICORE] new: tell core 0 this frame's share is done
