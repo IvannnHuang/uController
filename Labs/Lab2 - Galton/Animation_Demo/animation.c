@@ -88,7 +88,7 @@ typedef signed int fix15 ;
 volatile int rot_mode = ROT_MODE_BALLS ;
 
 #define MIN_BALLS  1
-#define MAX_BALLS  10000   // ~10.3k is the RAM ceiling at 20 bytes/ball
+#define MAX_BALLS  12500   // 200 KB of balls at 16 bytes/ball (~12.9k is the RAM ceiling)
 #define INIT_BALLS 100
 #define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
@@ -226,13 +226,20 @@ int nearestPeg(fix15 x, fix15 y)
 
 typedef struct {
   fix15 x, y ;        // position
-  fix15 vx, vy ;      // velocity (px/frame)
-  // Narrow types keep a ball at 20 bytes (was 24): RAM is the limit on
-  // MAX_BALLS, since the two VGA frame buffers already take 307 KB
+  // Narrow types keep a ball at 16 bytes (was 24): RAM is the limit on
+  // MAX_BALLS, since the two VGA frame buffers already take 307 KB.
+  // Velocity is stored as fix8 (1/256 px/frame, +/-127 px/frame; balls
+  // never exceed ~18) and widened to fix15 for the math in updateBall().
+  int16_t vx, vy ;    // velocity (px/frame), fix8 -- use vel2fix15 / fix2vel
   int16_t last_peg ;  // index of the last peg struck (-1 = none yet), 0..135
   uint8_t binned ;    // 1 once this drop has been counted in the histogram
 } ball_t ;
-_Static_assert(sizeof(ball_t) == 20, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
+_Static_assert(sizeof(ball_t) == 16, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
+
+// fix8 <-> fix15 for the stored velocity. Round to nearest when narrowing:
+// a plain >> would always round toward -inf and bias every ball left/up.
+#define vel2fix15(v) ((fix15)(v) << 7)
+#define fix2vel(a)   ((int16_t)(((a) + 64) >> 7))
 
 ball_t balls[MAX_BALLS] ;
 int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
@@ -265,7 +272,7 @@ void spawnBall(ball_t* b)
 {
   b->x  = int2fix15(SCREEN_W / 2) ;
   b->y  = int2fix15(BOARD_TOP_Y - 50) ;
-  b->vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  b->vx = fix2vel((fix15)((rand() & 0x3FFF) - 0x2000)) ;  // 0x2000 = 0.25 in fix15
   // b->vx = (rand() & 0xffff) - int2fix15(1);   // random between [-1, 1]
   b->vy = 0 ;
   b->last_peg = -1 ;
@@ -400,18 +407,22 @@ void playPegSound()
 // One frame of ball physics 
 void updateBall(ball_t* b)
 {
+  // Work on full-precision fix15 copies of the stored fix8 velocity
+  fix15 vx = vel2fix15(b->vx) ;
+  fix15 vy = vel2fix15(b->vy) ;
+
   // Past the bottom row there are no pegs left to hit (and gravity keeps
   // it moving down), so skip the substeps and peg search: just move it.
   if (b->y > BIN_LINE_Y) {
-    b->x = b->x + b->vx ;
-    b->y = b->y + b->vy ;
+    b->x = b->x + vx ;
+    b->y = b->y + vy ;
   } else {
     // Split this frame's motion into substeps of at most ~4 px, so a fast
     // ball can't jump past a peg, or land deep inside it, between checks.
-    int speed = fix2int15(MAX(absfix15(b->vx), absfix15(b->vy))) ;
+    int speed = fix2int15(MAX(absfix15(vx), absfix15(vy))) ;
     int steps = (speed >> 2) + 1 ;
-    fix15 step_vx = b->vx / steps ;   // divide once, not every substep
-    fix15 step_vy = b->vy / steps ;
+    fix15 step_vx = vx / steps ;   // divide once, not every substep
+    fix15 step_vy = vy / steps ;
 
     for (int s = 0; s < steps; s++) {
       // Move one substep
@@ -439,7 +450,7 @@ void updateBall(ball_t* b)
           fix15 normal_y = (fix15)(dy * inv_dist) ;
 
           // Velocity component along the normal: < 0 means moving INTO the peg
-          fix15 v_dot_n = multfix15(normal_x, b->vx) + multfix15(normal_y, b->vy) ;
+          fix15 v_dot_n = multfix15(normal_x, vx) + multfix15(normal_y, vy) ;
 
           // Teleport outside the collision distance, along the normal
           b->x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
@@ -448,14 +459,14 @@ void updateBall(ball_t* b)
           // Only reflect if approaching
           if (v_dot_n < 0) {
             fix15 intermediate_term = multfix15(int2fix15(-2), v_dot_n) ;
-            b->vx = b->vx + multfix15(normal_x, intermediate_term) ;
-            b->vy = b->vy + multfix15(normal_y, intermediate_term) ;
+            vx = vx + multfix15(normal_x, intermediate_term) ;
+            vy = vy + multfix15(normal_y, intermediate_term) ;
 
             // Did we just strike a new peg
             if (peg != b->last_peg) {
               playPegSound() ;
-              b->vx = multfix15(bounciness, b->vx) ;
-              b->vy = multfix15(bounciness, b->vy) ;
+              vx = multfix15(bounciness, vx) ;
+              vy = multfix15(bounciness, vy) ;
               b->last_peg = peg ;
             }
           }
@@ -474,8 +485,10 @@ void updateBall(ball_t* b)
     return ;
   }
 
-  // Apply gravity
-  b->vy = b->vy + GRAVITY ;
+  // Apply gravity, then store the velocity back at fix8
+  vy = vy + GRAVITY ;
+  b->vx = fix2vel(vx) ;
+  b->vy = fix2vel(vy) ;
 }
 
 // the color of the boid
