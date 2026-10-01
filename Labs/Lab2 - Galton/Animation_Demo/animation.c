@@ -49,6 +49,7 @@
 #include "hardware/clocks.h"
 #include "hardware/pll.h"
 #include "hardware/spi.h"
+#include "hardware/vreg.h"
 // Include protothreads
 #include "pt_cornell_rp2040_v1_4.h"
 
@@ -87,7 +88,7 @@ typedef signed int fix15 ;
 volatile int rot_mode = ROT_MODE_BALLS ;
 
 #define MIN_BALLS  1
-#define MAX_BALLS  8000
+#define MAX_BALLS  10000   // ~10.3k is the RAM ceiling at 20 bytes/ball
 #define INIT_BALLS 100
 #define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
@@ -226,9 +227,12 @@ int nearestPeg(fix15 x, fix15 y)
 typedef struct {
   fix15 x, y ;        // position
   fix15 vx, vy ;      // velocity (px/frame)
-  int   last_peg ;    // index of the last peg struck (-1 = none yet)
-  int   binned ;      // 1 once this drop has been counted in the histogram
+  // Narrow types keep a ball at 20 bytes (was 24): RAM is the limit on
+  // MAX_BALLS, since the two VGA frame buffers already take 307 KB
+  int16_t last_peg ;  // index of the last peg struck (-1 = none yet), 0..135
+  uint8_t binned ;    // 1 once this drop has been counted in the histogram
 } ball_t ;
+_Static_assert(sizeof(ball_t) == 20, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
 
 ball_t balls[MAX_BALLS] ;
 int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
@@ -478,16 +482,31 @@ void updateBall(ball_t* b)
 char color = CYAN ;
 
 // Create a semaphore
-semaphore_t draw_semaphore ;   // core 0 -> core 1: "buffer cleared, start your share"
+semaphore_t draw_semaphore ;   // core 0 -> core 1: "new frame, start clearing your half"
+
+// [MULTICORE] new: the two halves of a two-way barrier between clearing and
+// drawing. Neither core may draw until BOTH halves of the buffer are clear
+// (any ball can be anywhere on screen).
+//   top_semaphore: core 0 -> core 1: "top cleared, num_balls/split are final"
+//   bot_semaphore: core 1 -> core 0: "bottom cleared, histogram drawn"
+semaphore_t top_semaphore ;
+semaphore_t bot_semaphore ;
 
 // [MULTICORE] new: core 1 -> core 0: "my share of this frame is drawn".
 // Keeps core 0 from clearing the next frame while core 1 is still drawing.
 semaphore_t done_semaphore ;
 
+// [MULTICORE] new: core 0 clears rows [0, CLEAR_SPLIT_Y), core 1 clears
+// [CLEAR_SPLIT_Y, 480) and then draws the histogram (which lives down there)
+#define CLEAR_SPLIT_Y 240
+
 // [MULTICORE] new: balls [0, split) run on core 0, [split, num_balls) on core 1.
-// Core 1 also draws the 136 pegs, so core 0 takes more than half the balls.
-// Tune SPLIT_PCT using the per-core times shown on screen.
-#define SPLIT_PCT 60
+// Core 0's share is kept in per-mille (split_pm) and auto-balanced every
+// frame from the measured core times, so it tracks the cost of the pegs,
+// text, histogram, and where the balls are on the board.
+#define SPLIT_PM_INIT  600     // starting guess: core 0 takes 60% of the balls
+#define SPLIT_DEADBAND 50      // us: don't chase differences smaller than this
+int split_pm = SPLIT_PM_INIT ; // only touched by core 0
 volatile int split = 0 ;
 
 // [MULTICORE] new: how long each core spent on its share last frame (us)
@@ -600,10 +619,14 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       static uint32_t t0 ;
       t0 = time_us_32() ;
 
-      // [MULTICORE] moved: the encoder / spawn bookkeeping used to run AFTER
-      // signaling core 1. It now runs BEFORE the signal, so core 1 never
-      // updates a ball that core 0 is re-spawning, and it sees final
-      // num_balls / split values for this frame.
+      // [MULTICORE] changed: wake core 1 right away so the two cores clear
+      // the buffer in parallel (was: core 0 cleared it all, core 1 idle)
+      PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
+      clearRegion(0, CLEAR_SPLIT_Y, BLACK) ;
+
+      // [MULTICORE] the encoder / spawn bookkeeping runs before core 1 is
+      // released to draw (top_semaphore), so core 1 never updates a ball
+      // that core 0 is re-spawning, and it sees final num_balls / split.
       // === ROTARY ENCODER: match the ball count to the knob ===
       pollButton() ;                 // push button: toggle knob mode on press
       int target = rot_counter ;     // read the ISR's value once
@@ -613,18 +636,24 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       }
       // Removing balls: the extras just stop being updated/drawn
       num_balls = target ;
-      // [MULTICORE] new: decide which balls each core owns this frame
-      split = (num_balls * SPLIT_PCT) / 100 ;
+      // [MULTICORE] new: auto-balance. Last frame's times are both measured
+      // from the start of the frame, so they compare finish times; shift
+      // balls toward whichever core finished first. 1 per-mille per frame
+      // (~60 per-mille/s) is slow enough not to oscillate on noisy timings.
+      int diff = (int)core1_us - (int)core0_us ;
+      if      (diff >  SPLIT_DEADBAND) split_pm = MIN(split_pm + 1, 1000) ;
+      else if (diff < -SPLIT_DEADBAND) split_pm = MAX(split_pm - 1, 0) ;
+      // decide which balls each core owns this frame
+      split = (num_balls * split_pm) / 1000 ;
 
-      // Clear the buffer
-      clearLowFrame(0, BLACK);
-      // [MULTICORE] moved: histogram is now drawn BEFORE core 1 starts, so
-      // balls from both cores are guaranteed to land on top of the bars
-      drawHistogram() ;
-      // Signal core 1 that it can start drawing
-      PT_SEM_SDK_SIGNAL(pt, &draw_semaphore) ;
+      // [MULTICORE] new: barrier. Release core 1 (top is clear, split is
+      // final), then wait until the bottom is clear and the histogram drawn,
+      // so balls from both cores land on a clean buffer, on top of the bars.
+      PT_SEM_SDK_SIGNAL(pt, &top_semaphore) ;
+      PT_SEM_SDK_WAIT(pt, &bot_semaphore) ;
 
       // [MULTICORE] removed from core 0: the 136-peg draw loop (now on core 1)
+      // [MULTICORE] moved to core 1: bottom-half clear and drawHistogram()
 
       // [MULTICORE] changed: was update ALL balls, then draw ALL balls.
       // Core 0 now updates + draws only balls [0, split); core 1 does the rest.
@@ -644,7 +673,7 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       drawTextVGA437(10, 50, text_str, WHITE, BLACK) ;
       // [MULTICORE] new: per-core work time and the spare time left in the
       // frame. Spare time is set by the slower core; if it's near 0, you're
-      // at the ball limit. Balance the two by tuning SPLIT_PCT.
+      // at the ball limit. The split auto-balances the two (shown as Split).
       static uint32_t slowest ;
       slowest = MAX(core0_us, core1_us) ;
       sprintf(text_str, "Core0: %5d us", (int)core0_us) ;
@@ -658,6 +687,9 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       drawTextVGA437(10, 130, text_str, WHITE, BLACK) ;
       sprintf(text_str, "Bounce: %d.%02d", bounce_pct / 100, bounce_pct % 100) ;
       drawTextVGA437(10, 150, text_str, WHITE, BLACK) ;
+      // [MULTICORE] new: core 0's current share of the balls
+      sprintf(text_str, "Split: %3d.%d%%", split_pm / 10, split_pm % 10) ;
+      drawTextVGA437(10, 170, text_str, WHITE, BLACK) ;
       core0_us = time_us_32() - t0 ;
 
       // [MULTICORE] new: wait for core 1 to finish its share before looping
@@ -682,6 +714,17 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
       // [MULTICORE] new: everything below is core 1's share of the frame
       static uint32_t t1 ;
       t1 = time_us_32() ;
+
+      // [MULTICORE] new: clear the bottom half while core 0 clears the top,
+      // then draw the histogram (it sits entirely in the bottom half, and
+      // core 0 isn't binning balls yet, so bins_core is stable here)
+      clearLowFrame(CLEAR_SPLIT_Y, BLACK) ;
+      drawHistogram() ;
+
+      // [MULTICORE] new: barrier -- wait for the top half to be clear and for
+      // num_balls / split to be final, then let core 0 start drawing too
+      PT_SEM_SDK_SIGNAL(pt, &bot_semaphore) ;
+      PT_SEM_SDK_WAIT(pt, &top_semaphore) ;
 
       // [MULTICORE] moved from core 0: draw the pegs. Balls are always pushed
       // out to TELEPORT_DIST, so they never overlap a peg and draw order
@@ -718,7 +761,13 @@ void core1_main(){
 // ========================================
 // USE ONLY C-sdk library
 int main(){
-  set_sys_clock_khz(150000, true) ;
+  // Overclock 150 -> 300 MHz. The VGA PIO timing depends on this: see the
+  // clkdivs in hsync.pio / vsync.pio and the pixel holds in rgb.pio.
+  // The RP2350 doesn't raise the core voltage on its own, so do it first
+  // and let it settle (1.30 V is the max without unlocking the regulator).
+  vreg_set_voltage(VREG_VOLTAGE_1_30) ;
+  busy_wait_us(10000) ;
+  set_sys_clock_khz(300000, true) ;
   // initialize stio
   stdio_init_all() ;
 
@@ -747,6 +796,9 @@ int main(){
   // Initialize the semaphore
   // Arguments: pointer to sem, initial count, max count
   sem_init(&draw_semaphore, 0, 1) ;
+  // [MULTICORE] new: clear-then-draw barrier
+  sem_init(&top_semaphore, 0, 1) ;
+  sem_init(&bot_semaphore, 0, 1) ;
   // [MULTICORE] new: core 1 -> core 0 "done" semaphore
   sem_init(&done_semaphore, 0, 1) ;
 
