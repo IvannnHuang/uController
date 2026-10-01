@@ -82,7 +82,7 @@ typedef signed int fix15 ;
 volatile int rot_mode = ROT_MODE_BALLS ;
 
 #define MIN_BALLS  1
-#define MAX_BALLS  13000   // CPU limit at 350 MHz (Spare ~0 us); RAM would allow ~17k at 12 bytes/ball
+#define MAX_BALLS  16000   // 350 MHz + hot code in SRAM: ~600 us spare; RAM ceiling ~17k at 12 bytes/ball
 #define INIT_BALLS 100
 #define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
