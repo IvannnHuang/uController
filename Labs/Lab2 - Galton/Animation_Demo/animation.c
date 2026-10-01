@@ -226,20 +226,26 @@ int nearestPeg(fix15 x, fix15 y)
 
 typedef struct {
   fix15 x, y ;        // position
-  // Narrow types keep a ball at 16 bytes (was 24): RAM is the limit on
-  // MAX_BALLS, since the two VGA frame buffers already take 307 KB.
-  // Velocity is stored as fix8 (1/256 px/frame, +/-127 px/frame; balls
-  // never exceed ~18) and widened to fix15 for the math in updateBall().
-  int16_t vx, vy ;    // velocity (px/frame), fix8 -- use vel2fix15 / fix2vel
-  int16_t last_peg ;  // index of the last peg struck (-1 = none yet), 0..135
-  uint8_t binned ;    // 1 once this drop has been counted in the histogram
+  fix15 vy ;          // y velocity (px/frame)
+  // x velocity (fix15) and the per-ball flags packed in one word, so a ball
+  // is 16 bytes (was 24): RAM is the limit on MAX_BALLS, since the two VGA
+  // frame buffers already take 307 KB. Use the BALL_* macros below.
+  //   bits 31..9: vx (fix15) -- 23 bits signed = +/-128 px/frame (balls never exceed ~18)
+  //   bits  8..1: last_peg + 1 (0 = none yet, 1..136 = peg 0..135)
+  //   bit      0: binned (1 once this drop has been counted in the histogram)
+  // Unpacking is an exact shift, so the physics keeps full fix15 precision.
+  // (Storing velocity at lower precision instead starves the board of
+  // distinct starting conditions: the histogram goes lumpy and some balls
+  // balance forever on the top peg.)
+  int32_t vx_meta ;
 } ball_t ;
 _Static_assert(sizeof(ball_t) == 16, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
 
-// fix8 <-> fix15 for the stored velocity. Round to nearest when narrowing:
-// a plain >> would always round toward -inf and bias every ball left/up.
-#define vel2fix15(v) ((fix15)(v) << 7)
-#define fix2vel(a)   ((int16_t)(((a) + 64) >> 7))
+#define BALL_META_BITS 9
+#define BALL_PACK(vx, peg, binned)   ((int32_t)((vx) * (1 << BALL_META_BITS)) | (((peg) + 1) << 1) | (binned))
+#define BALL_VX(m)       ((fix15)((m) >> BALL_META_BITS))   // arithmetic shift: exact
+#define BALL_LAST_PEG(m) ((((m) >> 1) & 0xFF) - 1)
+#define BALL_BINNED(m)   ((m) & 1)
 
 ball_t balls[MAX_BALLS] ;
 int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
@@ -272,17 +278,17 @@ void spawnBall(ball_t* b)
 {
   b->x  = int2fix15(SCREEN_W / 2) ;
   b->y  = int2fix15(BOARD_TOP_Y - 50) ;
-  b->vx = fix2vel((fix15)((rand() & 0x3FFF) - 0x2000)) ;  // 0x2000 = 0.25 in fix15
-  // b->vx = (rand() & 0xffff) - int2fix15(1);   // random between [-1, 1]
+  fix15 vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  // fix15 vx = (rand() & 0xffff) - int2fix15(1);   // random between [-1, 1]
   b->vy = 0 ;
-  b->last_peg = -1 ;
-  b->binned = 0 ;
+  b->vx_meta = BALL_PACK(vx, -1, 0) ;   // no peg struck yet, not binned
 }
 
 // Count a ball that just passed the bottom row: which gap did it go through?
-void binBall(ball_t* b)
+// (the caller marks the ball as binned)
+void binBall(fix15 x)
 {
-  int xi = fix2int15(b->x) - BOTTOM_LEFT_X ;          // relative to leftmost bottom peg
+  int xi = fix2int15(x) - BOTTOM_LEFT_X ;          // relative to leftmost bottom peg
   int bin = (xi < 0) ? 0 : (xi / PEG_HORZ_SEP) + 1 ;  // left of it = bin 0
   if (bin > NUM_BINS - 1) bin = NUM_BINS - 1 ;        // right of rightmost peg
   // [MULTICORE] was: bins[bin]++ ; total_fallen++ ;
@@ -290,7 +296,6 @@ void binBall(ball_t* b)
   int core = get_core_num() ;
   bins_core[core][bin]++ ;
   fallen_core[core]++ ;
-  b->binned = 1 ;
 }
 
 // Draw the histogram under the board, scaled so the fullest bin is HIST_H tall
@@ -407,9 +412,12 @@ void playPegSound()
 // One frame of ball physics 
 void updateBall(ball_t* b)
 {
-  // Work on full-precision fix15 copies of the stored fix8 velocity
-  fix15 vx = vel2fix15(b->vx) ;
-  fix15 vy = vel2fix15(b->vy) ;
+  // Unpack vx and the flags into locals; packed back at the end
+  int32_t meta  = b->vx_meta ;
+  fix15 vx      = BALL_VX(meta) ;
+  fix15 vy      = b->vy ;
+  int last_peg  = BALL_LAST_PEG(meta) ;
+  int binned    = BALL_BINNED(meta) ;
 
   // Past the bottom row there are no pegs left to hit (and gravity keeps
   // it moving down), so skip the substeps and peg search: just move it.
@@ -463,11 +471,11 @@ void updateBall(ball_t* b)
             vy = vy + multfix15(normal_y, intermediate_term) ;
 
             // Did we just strike a new peg
-            if (peg != b->last_peg) {
+            if (peg != last_peg) {
               playPegSound() ;
               vx = multfix15(bounciness, vx) ;
               vy = multfix15(bounciness, vy) ;
-              b->last_peg = peg ;
+              last_peg = peg ;
             }
           }
         }
@@ -477,7 +485,10 @@ void updateBall(ball_t* b)
 
   // Count it in the histogram as it leaves the board (not at the screen
   // bottom, since it keeps drifting sideways as it falls)
-  if (!b->binned && (b->y > BIN_LINE_Y)) binBall(b) ;
+  if (!binned && (b->y > BIN_LINE_Y)) {
+    binBall(b->x) ;
+    binned = 1 ;
+  }
 
   // Re-spawn any ball that falls thru the bottom of the SCREEN
   if (b->y > int2fix15(SCREEN_H)) {
@@ -485,10 +496,9 @@ void updateBall(ball_t* b)
     return ;
   }
 
-  // Apply gravity, then store the velocity back at fix8
-  vy = vy + GRAVITY ;
-  b->vx = fix2vel(vx) ;
-  b->vy = fix2vel(vy) ;
+  // Apply gravity, then store the velocity and flags back
+  b->vy = vy + GRAVITY ;
+  b->vx_meta = BALL_PACK(vx, last_peg, binned) ;
 }
 
 // the color of the boid
