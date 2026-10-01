@@ -64,12 +64,6 @@ typedef signed int fix15 ;
 #define char2fix15(a) (fix15)(((fix15)(a)) << 15)
 #define divfix(a,b) (fix15)(div_s64s64( (((signed long long)(a)) << 15), ((signed long long)(b))))
 
-// // Wall detection
-// #define hitBottom(b) (b>int2fix15(380))
-// #define hitTop(b) (b<int2fix15(100))
-// #define hitLeft(a) (a<int2fix15(100))
-// #define hitRight(a) (a>int2fix15(540))
-
 // uS per frame
 #define FRAME_RATE 33000
 
@@ -88,7 +82,7 @@ typedef signed int fix15 ;
 volatile int rot_mode = ROT_MODE_BALLS ;
 
 #define MIN_BALLS  1
-#define MAX_BALLS  12500   // 200 KB of balls at 16 bytes/ball (~12.9k is the RAM ceiling)
+#define MAX_BALLS  16000   // 192 KB of balls at 12 bytes/ball (~17k is the RAM ceiling)
 #define INIT_BALLS 100
 #define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
@@ -127,15 +121,8 @@ static void rot_click(int dir)
   }
 }
 
-// Push button, polled once per frame from the animation thread. Sampling
-// every ~16 ms is slower than contact bounce (a few ms), so each press and
-// each release shows up as exactly one transition -- no timer needed.
+// Push button, polled once per frame from the animation thread. 
 // Toggles the mode on each press (low -> high), whatever the hold time.
-//
-// RP2350 erratum E9: with the internal pull-down, a pin driven high can
-// latch at ~2 V and keep reading 1 after the button is released. Keeping
-// the input buffer OFF between polls lets the pull-down drain the pin, so
-// enable it only long enough to take each sample.
 static void pollButton(void)
 {
   static int sw_prev = 0 ;
@@ -224,28 +211,51 @@ int nearestPeg(fix15 x, fix15 y)
   return row * (row + 1) / 2 + col ;
 }
 
+// A ball is packed into 12 bytes (was 24): RAM is the limit on MAX_BALLS,
+// since the two VGA frame buffers already take 307 KB. Use the BALL_* macros
+// and ballStore() below; updateBall() works on unpacked locals.
+//   xm, ym: position (fix15) in bits 31..5 -- 27 bits signed = +/-2048 px,
+//           which keeps FULL fix15 precision (balls fly out to ~1300 px at
+//           bounciness 1). The 5 low bits of each hold the 9-bit "meta":
+//           meta bits 8..1 = last_peg + 1 (0 = none yet), bit 0 = binned.
+//   vx, vy: velocity as fix10 (1/1024 px/frame, +/-32 px/frame; balls never
+//           exceed ~17). Checked against full fix15 in a PC simulation of
+//           this exact physics: same histogram, with spawnBall() adding a
+//           sub-pixel drop jitter so the board still sees plenty of distinct
+//           starting conditions.
 typedef struct {
-  fix15 x, y ;        // position
-  fix15 vy ;          // y velocity (px/frame)
-  // x velocity (fix15) and the per-ball flags packed in one word, so a ball
-  // is 16 bytes (was 24): RAM is the limit on MAX_BALLS, since the two VGA
-  // frame buffers already take 307 KB. Use the BALL_* macros below.
-  //   bits 31..9: vx (fix15) -- 23 bits signed = +/-128 px/frame (balls never exceed ~18)
-  //   bits  8..1: last_peg + 1 (0 = none yet, 1..136 = peg 0..135)
-  //   bit      0: binned (1 once this drop has been counted in the histogram)
-  // Unpacking is an exact shift, so the physics keeps full fix15 precision.
-  // (Storing velocity at lower precision instead starves the board of
-  // distinct starting conditions: the histogram goes lumpy and some balls
-  // balance forever on the top peg.)
-  int32_t vx_meta ;
+  int32_t xm, ym ;
+  int16_t vx, vy ;
 } ball_t ;
-_Static_assert(sizeof(ball_t) == 16, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
+_Static_assert(sizeof(ball_t) == 12, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
 
-#define BALL_META_BITS 9
-#define BALL_PACK(vx, peg, binned)   ((int32_t)((vx) * (1 << BALL_META_BITS)) | (((peg) + 1) << 1) | (binned))
-#define BALL_VX(m)       ((fix15)((m) >> BALL_META_BITS))   // arithmetic shift: exact
-#define BALL_LAST_PEG(m) ((((m) >> 1) & 0xFF) - 1)
-#define BALL_BINNED(m)   ((m) & 1)
+#define BALL_POS(m)            ((fix15)((m) >> 5))      // arithmetic shift: exact
+#define BALL_META(b)           (((b)->xm & 31) | (((b)->ym & 31) << 5))
+#define META_LAST_PEG(m)       (((m) >> 1) - 1)
+#define META_BINNED(m)         ((m) & 1)
+#define MAKE_META(peg, binned) ((((peg) + 1) << 1) | (binned))
+#define POS_LIMIT              int2fix15(2047)
+#define vel2fix15(v)           ((fix15)(v) * 32)        // fix10 -> fix15, exact
+
+// fix15 -> fix10, rounded to nearest (a plain >> would always round toward
+// -inf and bias every ball left/up) and saturated to int16
+static inline int16_t fix2vel(fix15 a)
+{
+  a = (a + 16) >> 5 ;
+  return (int16_t)MIN(MAX(a, -32767), 32767) ;
+}
+
+// Pack a ball's state. Positions are clamped to +/-2047 px so the << 5 can't
+// overflow (only balls far off screen ever get near it)
+static inline void ballStore(ball_t* b, fix15 x, fix15 y, fix15 vx, fix15 vy, int meta)
+{
+  x = MIN(MAX(x, -POS_LIMIT), POS_LIMIT) ;
+  y = MIN(MAX(y, -POS_LIMIT), POS_LIMIT) ;
+  b->xm = (int32_t)((uint32_t)x << 5) | (meta & 31) ;
+  b->ym = (int32_t)((uint32_t)y << 5) | (meta >> 5) ;
+  b->vx = fix2vel(vx) ;
+  b->vy = fix2vel(vy) ;
+}
 
 ball_t balls[MAX_BALLS] ;
 int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
@@ -273,15 +283,16 @@ int bins_core[2][NUM_BINS] ;
 int fallen_core[2] ;
 
 // Drop the ball from just above the top peg with zero y-velocity and a small random
-// x-velocity in [-0.25, 0.25) so it doesn't land on the peg dead-center
+// x-velocity in (-0.25, 0.25) so it doesn't land on the peg dead-center.
+//  - vx is forced odd at fix10, so it is never exactly 0: a ball dropped
+//    with vx = 0 hits the top peg dead-center and bounces in place forever
+//  - x gets a random sub-pixel offset (+/-0.5 px), so the board still sees
+//    plenty of distinct starting conditions with vx stored at fix10
 void spawnBall(ball_t* b)
 {
-  b->x  = int2fix15(SCREEN_W / 2) ;
-  b->y  = int2fix15(BOARD_TOP_Y - 50) ;
-  fix15 vx = (fix15)((rand() & 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
-  // fix15 vx = (rand() & 0xffff) - int2fix15(1);   // random between [-1, 1]
-  b->vy = 0 ;
-  b->vx_meta = BALL_PACK(vx, -1, 0) ;   // no peg struck yet, not binned
+  fix15 x  = int2fix15(SCREEN_W / 2) + (fix15)((rand() & 0x7FFF) - 0x4000) ;  // 0x4000 = 0.5 px
+  fix15 vx = vel2fix15(((rand() & 0x1FF) - 0x100) | 1) ;                       // 0x100 = 0.25 at fix10
+  ballStore(b, x, int2fix15(BOARD_TOP_Y - 50), vx, 0, MAKE_META(-1, 0)) ;      // no peg yet, not binned
 }
 
 // Count a ball that just passed the bottom row: which gap did it go through?
@@ -412,18 +423,20 @@ void playPegSound()
 // One frame of ball physics 
 void updateBall(ball_t* b)
 {
-  // Unpack vx and the flags into locals; packed back at the end
-  int32_t meta  = b->vx_meta ;
-  fix15 vx      = BALL_VX(meta) ;
-  fix15 vy      = b->vy ;
-  int last_peg  = BALL_LAST_PEG(meta) ;
-  int binned    = BALL_BINNED(meta) ;
+  // Unpack the ball into locals; packed back at the end
+  fix15 x       = BALL_POS(b->xm) ;
+  fix15 y       = BALL_POS(b->ym) ;
+  fix15 vx      = vel2fix15(b->vx) ;
+  fix15 vy      = vel2fix15(b->vy) ;
+  int meta      = BALL_META(b) ;
+  int last_peg  = META_LAST_PEG(meta) ;
+  int binned    = META_BINNED(meta) ;
 
   // Past the bottom row there are no pegs left to hit (and gravity keeps
   // it moving down), so skip the substeps and peg search: just move it.
-  if (b->y > BIN_LINE_Y) {
-    b->x = b->x + vx ;
-    b->y = b->y + vy ;
+  if (y > BIN_LINE_Y) {
+    x = x + vx ;
+    y = y + vy ;
   } else {
     // Split this frame's motion into substeps of at most ~4 px, so a fast
     // ball can't jump past a peg, or land deep inside it, between checks.
@@ -434,14 +447,14 @@ void updateBall(ball_t* b)
 
     for (int s = 0; s < steps; s++) {
       // Move one substep
-      b->x = b->x + step_vx ;
-      b->y = b->y + step_vy ;
+      x = x + step_vx ;
+      y = y + step_vy ;
 
       // Only the nearest peg can be in contact
-      int peg = nearestPeg(b->x, b->y) ;
+      int peg = nearestPeg(x, y) ;
       if (peg < 0) continue ;
-      fix15 dx = b->x - peg_x[peg] ;
-      fix15 dy = b->y - peg_y[peg] ;
+      fix15 dx = x - peg_x[peg] ;
+      fix15 dy = y - peg_y[peg] ;
 
       // Cheap bounding-box check first, then compare SQUARED distances, so
       // near-misses in the box corners never pay for a sqrt
@@ -461,8 +474,8 @@ void updateBall(ball_t* b)
           fix15 v_dot_n = multfix15(normal_x, vx) + multfix15(normal_y, vy) ;
 
           // Teleport outside the collision distance, along the normal
-          b->x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
-          b->y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
+          x = peg_x[peg] + multfix15(normal_x, TELEPORT_DIST) ;
+          y = peg_y[peg] + multfix15(normal_y, TELEPORT_DIST) ;
 
           // Only reflect if approaching
           if (v_dot_n < 0) {
@@ -485,20 +498,19 @@ void updateBall(ball_t* b)
 
   // Count it in the histogram as it leaves the board (not at the screen
   // bottom, since it keeps drifting sideways as it falls)
-  if (!binned && (b->y > BIN_LINE_Y)) {
-    binBall(b->x) ;
+  if (!binned && (y > BIN_LINE_Y)) {
+    binBall(x) ;
     binned = 1 ;
   }
 
   // Re-spawn any ball that falls thru the bottom of the SCREEN
-  if (b->y > int2fix15(SCREEN_H)) {
+  if (y > int2fix15(SCREEN_H)) {
     spawnBall(b) ;
     return ;
   }
 
-  // Apply gravity, then store the velocity and flags back
-  b->vy = vy + GRAVITY ;
-  b->vx_meta = BALL_PACK(vx, last_peg, binned) ;
+  // Apply gravity, then pack the ball back
+  ballStore(b, x, y, vx, vy + GRAVITY, MAKE_META(last_peg, binned)) ;
 }
 
 // the color of the boid
@@ -538,19 +550,28 @@ volatile uint32_t core1_us = 0 ;
 #define FRAME_BUDGET_US 16667   // DOUBLE_BUFFER_60 -> 60 fps
 
 // === FAST BALL DRAW ===
-// fillCircle() recomputes the same shape for every ball (5 software square
-// roots + 10 drawHLine calls, each with its own range checks and a tiny
-// memset). The radius never changes, so compute each row's half-width once
-// and write the pixels straight into the frame buffer.
+// Balls are hollow rings. drawCircle() would recompute the same shape for
+// every ball and plot it one pixel at a time through drawPixel(). The radius
+// never changes, so compute each row's outer and inner (hole) half-widths
+// once and write the pixels straight into the frame buffer.
 extern char * current_draw_buffer ;     // defined in vga16_graphics_v3.c
 int32_t sqrt_i32(int32_t v) ;           // defined in vga16_graphics_v3.c
-static int ball_dx[BALL_RADIUS + 1] ;   // half-width of row i above/below center
+static int ball_dx[BALL_RADIUS + 1] ;   // outer half-width of row i above/below center
+static int ball_hx[BALL_RADIUS + 1] ;   // hole half-width of row i (0 = solid row)
 
-// Same formula as fillCircle(), so the balls look identical
+// Ring = disk of radius r minus disk of radius r-1 (same half-width formula
+// as fillCircle()). For r = 4 that's 1-2 px thick sides and solid top/bottom.
 void initBallSprite(void)
 {
   int r2 = BALL_RADIUS * BALL_RADIUS + BALL_RADIUS ;
-  for (int i = 0; i <= BALL_RADIUS; i++) ball_dx[i] = sqrt_i32(r2 - i * i) ;
+  int h  = BALL_RADIUS - 1 ;
+  int h2 = h * h + h ;
+  for (int i = 0; i <= BALL_RADIUS; i++) {
+    ball_dx[i] = sqrt_i32(r2 - i * i) ;
+    ball_hx[i] = (i <= h) ? sqrt_i32(h2 - i * i) : 0 ;
+    // keep every row's outline at least 1 px thick
+    if (ball_hx[i] >= ball_dx[i]) ball_hx[i] = ball_dx[i] - 1 ;
+  }
 }
 
 // Fill pixels [x, x+w) of one 640-px row (320 bytes, 2 px/byte:
@@ -567,21 +588,31 @@ static inline void drawSpan(unsigned char* row, int x, int w, unsigned char c)
   if (w) *p = (*p & 0xF0) | c ;                  // lone pixel at the right
 }
 
+// One row of the ring: the two sides, or the whole span where there's no hole
+static inline void drawRingRow(unsigned char* row, int x0, int dx, int hx, unsigned char c)
+{
+  if (hx <= 0) {
+    drawSpan(row, x0 - dx, 2 * dx, c) ;
+  } else {
+    drawSpan(row, x0 - dx, dx - hx, c) ;   // left side
+    drawSpan(row, x0 + hx, dx - hx, c) ;   // right side
+  }
+}
+
 static inline void drawBall(int x0, int y0, char c)
 {
   // Fast path only when the whole ball is on screen; otherwise fall back
-  // to fillCircle(), which handles the clipping
+  // to drawCircle(), which handles the clipping
   if ((x0 - BALL_RADIUS < 0) || (x0 + BALL_RADIUS > 639) ||
       (y0 - BALL_RADIUS < 0) || (y0 + BALL_RADIUS > 479)) {
-    fillCircle(x0, y0, BALL_RADIUS, c) ;
+    drawCircle(x0, y0, BALL_RADIUS, c) ;
     return ;
   }
   unsigned char* center = (unsigned char*)current_draw_buffer + 320 * y0 ;
-  drawSpan(center, x0 - ball_dx[0], 2 * ball_dx[0], c) ;
+  drawRingRow(center, x0, ball_dx[0], ball_hx[0], c) ;
   for (int i = 1; i <= BALL_RADIUS; i++) {
-    int dx = ball_dx[i] ;
-    drawSpan(center + 320 * i, x0 - dx, 2 * dx, c) ;   // row below center
-    drawSpan(center - 320 * i, x0 - dx, 2 * dx, c) ;   // row above center
+    drawRingRow(center + 320 * i, x0, ball_dx[i], ball_hx[i], c) ;   // row below center
+    drawRingRow(center - 320 * i, x0, ball_dx[i], ball_hx[i], c) ;   // row above center
   }
 }
 
@@ -589,7 +620,7 @@ static inline void drawBall(int x0, int y0, char c)
 static inline void updateAndDrawBall(ball_t* b)
 {
   updateBall(b) ;
-  drawBall(fix2int15(b->x), fix2int15(b->y), color) ;
+  drawBall(fix2int15(BALL_POS(b->xm)), fix2int15(BALL_POS(b->ym)), color) ;
 }
 
 // ==================================================
@@ -753,7 +784,7 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
       // out to TELEPORT_DIST, so they never overlap a peg and draw order
       // between the two cores doesn't matter.
       for (int i = 0; i < NUM_PEGS; i++) {
-        fillCircle(fix2int15(peg_x[i]), fix2int15(peg_y[i]), PEG_RADIUS, WHITE) ;
+        drawCircle(fix2int15(peg_x[i]), fix2int15(peg_y[i]), PEG_RADIUS, WHITE) ;   // hollow
       }
 
       // [MULTICORE] new: update + draw balls [split, num_balls)
