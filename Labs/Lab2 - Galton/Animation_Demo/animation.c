@@ -1,4 +1,3 @@
-
 /**
  * ECE 4760 Lab 2 -- Digital Galton Board (RP2350 / Pico 2)
  * Built on Hunter Adams' (vha3@cornell.edu) VGA animation demo.
@@ -39,7 +38,7 @@
  *   OPT 3  Precomputed ball sprite ........ 150 MHz:  5,000 balls
  *   OPT 4  Cheaper collision math ......... 150 MHz:  5,200 balls
  *   OPT 5  Parallel clear + auto split .... shipped with OPT 6           (not measured alone)
- *   OPT 6  Overclock 300 -> 350 MHz ....... 300 MHz: 3,150 us spare at 10k; 350 MHz: 13,000 (0 us spare)
+ *   OPT 6  Overclock 150 -> 300 -> 350 MHz 300 MHz: 3,150 us spare at 10k; 350 MHz: 13,000 (0 us spare)
  *   OPT 7  Ball struct 24 -> 12 bytes ..... RAM ceiling 8k -> 10.3k -> 12.9k -> ~17k
  *   OPT 8  Hot code in SRAM ............... 350 MHz: 16,000 balls with ~600 us spare
  */
@@ -258,7 +257,7 @@ int __not_in_flash_func(nearestPeg)(fix15 x, fix15 y)
 
 // =====================================================================
 // [OPT 7] BALL STRUCT 24 -> 12 BYTES
-//   Bottleneck : RAM. The two VGA frame buffers take 307 KB of the 512 KB
+//   Bottleneck : RAM. The two VGA frame buffers take 307 KB of the 520 KB
 //                SRAM; at 24 bytes/ball the linker overflowed above ~8,000.
 //   Approach   : shrink each ball without losing physics accuracy.
 //                24 B -> 20 B: narrow last_peg / binned.
@@ -750,7 +749,7 @@ static PT_THREAD (protothread_serial(struct pt *pt))
     PT_BEGIN(pt);
     // stores user input
     static int user_input ;
-    // wait for 0.1 sec
+    // wait 1 s before printing the banner
     PT_YIELD_usec(1000000) ;
     // announce the threader version
     sprintf(pt_serial_out_buffer, "Protothreads RP2040 v1.4\n\r");
@@ -771,7 +770,7 @@ static PT_THREAD (protothread_serial(struct pt *pt))
         }
       } // END WHILE(1)
   PT_END(pt);
-} // timer thread
+} // serial thread
 
 // Animation on core 0: frame control, knob handling, its share of the balls, text
 static PT_THREAD (protothread_anim(struct pt *pt))
@@ -967,7 +966,7 @@ int main(){
   clock_configure_undivided(clk_peri, 0,
                             CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
                             USB_CLK_HZ) ;
-  // initialize stio
+  // initialize stdio
   stdio_init_all() ;
 
   // initialize VGA
