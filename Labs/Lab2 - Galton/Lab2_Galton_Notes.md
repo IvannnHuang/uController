@@ -3,8 +3,11 @@
 **Target:** Raspberry Pi Pico 2 (RP2350, dual Cortex-M33), 640×480 VGA, 16 colors
 **Main file:** [Animation_Demo/animation.c](Animation_Demo/animation.c)
 **Final result:** **16,000 balls at 60 fps with ~600 µs of spare time per frame** (350 MHz, both cores)
+**Lab requirements added afterwards:** the histogram resets whenever a knob click changes a parameter, an LED lights when a frame misses the 60 fps deadline, and a third knob mode adjusts gravity (see [section 14](#14-lab-requirements-reset-missed-deadline-led-gravity-mode)).
 
 This document records how the code reached that result, step by step: what each change was, why it was made, how it was checked, and what didn't work. It follows the git history from Week 1 to the current version.
+
+**Reading the code:** every optimization is numbered **OPT 1–8**. In `animation.c`, each one has a detailed comment block at its main code (bottleneck, approach, effect, expected vs measured ball count), and the related lines elsewhere carry a short `[OPT n]` tag. [Section 15](#15-optimization-index-opt-tags-in-animationc) maps each tag to the sections below.
 
 ---
 
@@ -22,6 +25,8 @@ This document records how the code reached that result, step by step: what each 
 11. [Known limitations and harmless races](#11-known-limitations-and-harmless-races)
 12. [Ideas for going further](#12-ideas-for-going-further)
 13. [Commit and tag map](#13-commit-and-tag-map)
+14. [Lab requirements: reset, missed-deadline LED, gravity mode](#14-lab-requirements-reset-missed-deadline-led-gravity-mode)
+15. [Optimization index (OPT tags in animation.c)](#15-optimization-index-opt-tags-in-animationc)
 
 ---
 
@@ -34,15 +39,18 @@ This document records how the code reached that result, step by step: what each 
 | Rotary encoder A / B | 12 / 11 | Interrupt on both edges of both pins, internal pull-ups |
 | Encoder push button | 10 | Active high, internal pull-down, **polled** (see the E9 erratum below) |
 | MCP4822 DAC CS / SCK / MOSI | 13 / 14 / 15 | `spi1`, fed by DMA for the peg sound |
+| On-board LED | 25 | Lit when a frame misses the 60 fps deadline (held ~0.5 s) |
 
 **Resources:** PIO0 state machines 0–2 (VGA), DMA channels for VGA plus 2 for sound, and two 153.6 KB frame buffers (307 KB of the 512 KB SRAM).
 
 **Controls:**
 - **Knob, BALLS mode:** one click = ±100 balls (1 to `MAX_BALLS`).
 - **Knob, BOUNCE mode:** one click = ±0.05 bounciness (0.00 to 1.00).
-- **Button:** switches between the two modes.
+- **Knob, GRAVITY mode:** one click = ±0.05 gravity (0.05 to 1.00 px/frame², starts at 0.37).
+- **Any click that changes a value** resets the histogram and the Fallen count.
+- **Button:** steps BALLS → BOUNCE → GRAVITY → BALLS.
 
-**On-screen readout:** Balls, Fallen, Time, Core0 µs, Core1 µs, **Spare µs**, Knob mode, Bounce, **Split %**.
+**On-screen readout:** Balls, Fallen (since the last reset), Time, Core0 µs, Core1 µs, **Spare µs**, Knob mode, Bounce, Gravity, **Split %**, **Missed** (missed frames since boot).
 
 ---
 
@@ -63,6 +71,7 @@ vsync ─► buffers swap, start_flag = 1 (DMA)
 core 0                                      core 1
 ──────                                      ──────
 wait for draw_start_signal()                wait draw_semaphore
+if stats_reset: clear histogram + Fallen
 SIGNAL draw_semaphore ────────────────────► (wakes)
 clear rows 0–239                            clear rows 240–479
 poll button, read knob, spawn new balls     drawHistogram()
@@ -73,6 +82,7 @@ updateAndDrawRange(0, split)                draw 136 hollow pegs
 draw text (Balls/Fallen/Core times/…)       updateAndDrawRange(split, num_balls)
 core0_us = elapsed                          core1_us = elapsed
 WAIT done_semaphore ◄──────────────────── SIGNAL done_semaphore
+start_flag already set again? → missed: LED on
 ```
 
 ### 2.3 Who owns which data
@@ -362,6 +372,8 @@ The packing round trip was checked on 8.2 million cases (every peg value, both f
 - **Drop jitter (±0.5 px)** is a small deliberate change to the starting conditions. It changes the true distribution very slightly, which is physically reasonable.
 - **Leftovers:** `FRAME_RATE 33000` is unused. Commit `d0a9659` is titled "try overclock 250mhz" but actually contains the 350 MHz change.
 - **The custom flash boot stage 2 probably doesn't apply** (see 5.6).
+- **After a reset, balls already in the air still get counted.** The first few hundred counts after a change come from balls dropped under the old setting.
+- **High gravity costs more CPU:** faster balls need more collision substeps. 16,000 balls was measured at the default gravity 0.37; check Spare and the LED at gravity 1.00.
 
 ---
 
@@ -393,7 +405,60 @@ The packing round trip was checked on 8.2 million cases (every peg value, both f
 | `d0a9659` | try overclock 250mhz | *(actually)* 350 MHz with refdiv-2 PLL, D = 14 |
 | `a89ff57` | ball restruct to increase max ball | 12-byte ball, hollow drawing |
 | `12f680f` | check spare at 13k ball | Hot code in SRAM, `MAX_BALLS` 13000 |
-| `93f067c` | max 16k ball on screen with 600us spare | `MAX_BALLS` 16000 (current) |
+| `93f067c` | max 16k ball on screen with 600us spare | `MAX_BALLS` 16000 |
+| `2a571b2` | w2 markdown added | These notes |
+| *(uncommitted)* | — | Lab requirements (section 14) and the `[OPT n]` comment rewrite (section 15) |
 
 **Build:** VS Code Pico extension (SDK 2.3.1, toolchain 15_2_Rel1, `PICO_BOARD pico2`), `-Ofast`.
 **Test procedure:** turn the knob up in steps of 100 while watching **Spare**. The last count that keeps Spare above ~300–500 µs is the smooth maximum. Let it run a few minutes and check that the histogram is a smooth bell with no stuck balls on the top peg.
+
+---
+
+## 14. Lab requirements: reset, missed-deadline LED, gravity mode
+These were added after the optimization work. None of them is on the per-ball hot path, and the hot code is still in SRAM (checked in the disassembly).
+
+### 14.1 Changing a parameter resets the histogram and Fallen count
+| Code | Purpose |
+|---|---|
+| `rot_click()` computes the new clamped value and sets `stats_reset = 1` **only if the value actually changed** | A click at a limit (e.g. bounciness already 1.00) changes nothing, so it resets nothing. Applies to all three knob modes. |
+| At the very start of each frame, core 0 checks `stats_reset` and `memset`s `bins_core` and `fallen_core` to 0 | This is the one moment neither core touches the counters: core 1 finished counting last frame (done semaphore) and hasn't been woken to draw the histogram yet. No lock needed. |
+| Switching modes with the button doesn't reset | It doesn't change a parameter. |
+
+Balls already counted are not counted again; balls still in the air are counted when they pass the bottom row.
+
+### 14.2 LED on when the 60 fps deadline is missed
+| Code | Purpose |
+|---|---|
+| `extern int start_flag` (from the VGA driver) | The DMA sets it at every vsync, when it swaps the buffers; `draw_start_signal()` clears it as a frame starts. |
+| After `done_semaphore` (both cores finished), core 0 **peeks** at `start_flag` | If it's already set again, the buffers swapped mid-draw and the frame was shown half-finished: a missed deadline. An exact test, with no timing estimate. The flag is only read, so the next frame still starts normally. |
+| `led_hold = LED_HOLD_FRAMES` (30) on a miss, counting down otherwise; `gpio_put(LED_PIN, led_hold > 0)` | Keeps the LED on ~0.5 s so even a single missed frame is visible; when overloaded it misses every frame and stays on. |
+| `missed_frames` shown as `Missed: N` | Counts misses since boot. |
+| LED on `PICO_DEFAULT_LED_PIN` (GPIO 25), initialized off in `main()` | The Pico 2's on-board LED. |
+
+**Easy test:** set 16,000 balls and gravity 1.00.
+
+### 14.3 Third knob mode: gravity
+| Code | Purpose |
+|---|---|
+| `ROT_MODE_GRAVITY`, `ROT_NUM_MODES = 3`; the button does `rot_mode = (rot_mode + 1) % ROT_NUM_MODES` | Adds the third state to the cycle. |
+| `#define GRAVITY` replaced by `volatile int grav_pct` and `volatile fix15 gravity` (same scheme as bounciness) | Gravity can change while running; `updateBall` adds `gravity` instead of the constant. |
+| Range 0.05–1.00, step 0.05, start 0.37 | The 1.00 cap keeps a full-height fall (~29 px/frame) inside the 12-byte ball's ±32 px/frame velocity range (OPT 7). |
+| Screen: `Knob: GRAVITY` and `Gravity: 0.37` | Mode names are padded to one width so a shorter name fully overwrites a longer one. |
+
+---
+
+## 15. Optimization index (OPT tags in animation.c)
+Each comment block in the code uses the same fields: **Bottleneck → Approach → Effect → Expected / measured**.
+
+| Tag | Optimization | Main code | Bottleneck | Measured result | Details |
+|---|---|---|---|---|---|
+| OPT 1 | O(1) nearest-peg lookup | `nearestPeg()` | 136 peg tests per ball per substep | Enabled multi-ball (not measured alone) | §3.3 |
+| OPT 2 | Split balls across both cores | semaphores, `bins_core`, `updateAndDrawBall`, both anim threads | Core 1 idle | ~2× expected (not measured alone) | §4 Step 2 |
+| OPT 3 | Precomputed ball sprite (+ float literals) | `initBallSprite`, `drawSpan`, `drawBall` | `fillCircle` per ball | 5,000 @ 150 MHz | §4 Step 3 |
+| OPT 4 | Cheaper collision math | `updateBall` (4a squared distance, 4b FPU 1/sqrt, 4c divide once, 4d fast path) | sqrt + software divides; balls below the board doing the full search | 5,200 @ 150 MHz | §4 Step 4 |
+| OPT 5 | Parallel clear + auto split balance | `CLEAR_SPLIT_Y`, top/bot semaphores, `split_pm` | Core 0 clearing alone; fixed split | Shipped with OPT 6 (not measured alone) | §5.1–5.2 |
+| OPT 6 | Overclock 300 → 350 MHz | `main()` clock setup, `VGA/*.pio` | CPU at 150 MHz | 300 MHz: 3,150 µs spare at 10k; 350 MHz: 13,000 at 0 µs spare | §5.3–5.5 |
+| OPT 7 | Ball struct 24 → 12 bytes | `ball_t`, `ballStore`, `fix2vel`, `spawnBall` | RAM (linker overflow above ~8k) | 10,300 (20 B), 12,500 (16 B), ceiling ~17k (12 B) | §6 |
+| OPT 8 | Hot code in SRAM | `updateAndDrawRange` + `__not_in_flash_func` functions, `drawSpan` stores | Shared 16 KB flash cache; memset calls into flash | 13,000 @ 0 µs → **16,000 @ ~600 µs** | §8 |
+
+Code that isn't an optimization (encoder, button, sound, histogram drawing, the new lab features) has short one- or two-line comments only.
