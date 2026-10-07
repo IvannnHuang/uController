@@ -95,8 +95,8 @@ typedef signed int fix15 ;
 volatile int rot_mode = ROT_MODE_BALLS ;
 
 #define MIN_BALLS  1
-#define MAX_BALLS  16000   // [OPT 8] measured limit: ~600 us spare at 350 MHz (RAM would allow ~17k)
-#define INIT_BALLS 100
+#define MAX_BALLS  17000   // [OPT 8] measured limit: ~600 us spare at 350 MHz (RAM would allow ~17k)
+#define INIT_BALLS 16500
 #define BALL_STEP  100
 volatile int rot_counter = INIT_BALLS ;   // = number of balls to animate
 
@@ -110,7 +110,7 @@ volatile fix15 bounciness = (INIT_BOUNCE << 15) / 100 ;
 
 // Gravity (px/frame^2). Capped at 1.00 so a full-height fall (~29 px/frame)
 // stays inside ball_t's +/-32 px/frame velocity range [OPT 7]
-#define MIN_GRAV  5
+#define MIN_GRAV  -5
 #define MAX_GRAV  100
 #define INIT_GRAV 37
 #define GRAV_STEP 5
@@ -323,7 +323,8 @@ int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
 #define BIN_LINE_Y     int2fix15(BOTTOM_ROW_Y + PEG_RADIUS + BALL_RADIUS)
 // Bars fill the space under the board; the tallest bar is always HIST_H tall
 #define HIST_TOP       (BOTTOM_ROW_Y + 15)
-#define HIST_BOTTOM    (SCREEN_H - 2)   // fillRect won't draw row 479
+#define HIST_LABEL_Y   (SCREEN_H - 18)  // two rows of compact count labels
+#define HIST_BOTTOM    (HIST_LABEL_Y - 3)
 #define HIST_H         (HIST_BOTTOM - HIST_TOP + 1)
 #define BAR_W          (PEG_HORZ_SEP - 4)
 
@@ -353,6 +354,34 @@ void __not_in_flash_func(binBall)(fix15 x)
   fallen_core[core]++ ;
 }
 
+// Compact 3x5 digits keep exact counts readable beneath the narrow bins.
+// Alternate rows so even a ten-digit count cannot overlap its neighbors.
+static void drawBinCount(int bin, int count)
+{
+  static const uint8_t digits[10][5] = {
+    {7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7},
+    {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1}, {7, 4, 7, 1, 7},
+    {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7},
+    {7, 5, 7, 1, 7}
+  } ;
+  char label[12] ;
+  int length = snprintf(label, sizeof(label), "%d", count) ;
+  int width = length * 4 - 1 ;
+  int x = BIN0_CENTER_X + bin * PEG_HORZ_SEP - width / 2 ;
+  x = MIN(MAX(x, 0), SCREEN_W - width) ;
+  int y = HIST_LABEL_Y + (bin & 1) * 8 ;
+  for (int i = 0; i < length; i++) {
+    int digit = label[i] - '0' ;
+    for (int row = 0; row < 5; row++) {
+      for (int col = 0; col < 3; col++) {
+        if (digits[digit][row] & (1u << (2 - col))) {
+          drawPixel(x + i * 4 + col, y + row, WHITE) ;
+        }
+      }
+    }
+  }
+}
+
 // Draw the histogram under the board, scaled so the fullest bin is HIST_H tall
 void drawHistogram()
 {
@@ -362,7 +391,8 @@ void drawHistogram()
     bins[k] = bins_core[0][k] + bins_core[1][k] ;
     if (bins[k] > max_count) max_count = bins[k] ;
   }
-  if (max_count == 0) return ;   // nothing to draw yet
+  for (int k = 0; k < NUM_BINS; k++) drawBinCount(k, bins[k]) ;
+  if (max_count == 0) return ;   // zero labels remain visible after a reset
 
   for (int k = 0; k < NUM_BINS; k++) {
     int h = bins[k] * HIST_H / max_count ;
@@ -714,7 +744,11 @@ static inline void drawBall(int x0, int y0, char c)
 static inline void updateAndDrawBall(ball_t* b)
 {
   updateBall(b) ;
-  drawBall(fix2int15(BALL_POS(b->xm)), fix2int15(BALL_POS(b->ym)), color) ;
+  // Hide balls once they leave the peg board so they cannot cover the histogram.
+  // Physics continues below the board until the normal bottom-of-screen respawn.
+  if (BALL_POS(b->ym) <= BIN_LINE_Y) {
+    drawBall(fix2int15(BALL_POS(b->xm)), fix2int15(BALL_POS(b->ym)), color) ;
+  }
 }
 
 // =====================================================================
@@ -849,13 +883,13 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       drawTextVGA437(10, 130, text_str, WHITE, BLACK) ;
       sprintf(text_str, "Bounce: %d.%02d", bounce_pct / 100, bounce_pct % 100) ;
       drawTextVGA437(10, 150, text_str, WHITE, BLACK) ;
-      sprintf(text_str, "Gravity:%d.%02d", grav_pct / 100, grav_pct % 100) ;
+      sprintf(text_str, "Gravity: %d.%02d", grav_pct / 100, grav_pct % 100) ;
       drawTextVGA437(10, 170, text_str, WHITE, BLACK) ;
       // [OPT 5] core 0's current share of the balls
-      sprintf(text_str, "Split: %3d.%d%%", split_pm / 10, split_pm % 10) ;
-      drawTextVGA437(10, 190, text_str, WHITE, BLACK) ;
-      sprintf(text_str, "Missed: %d", missed_frames) ;
-      drawTextVGA437(10, 210, text_str, WHITE, BLACK) ;
+      // sprintf(text_str, "Split: %3d.%d%%", split_pm / 10, split_pm % 10) ;
+      // drawTextVGA437(10, 190, text_str, WHITE, BLACK) ;
+      // sprintf(text_str, "Missed: %d", missed_frames) ;
+      // drawTextVGA437(10, 210, text_str, WHITE, BLACK) ;
       core0_us = time_us_32() - t0 ;
 
       // [OPT 2] Join: wait for core 1, so the next clear can't wipe a buffer it's drawing
