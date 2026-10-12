@@ -2,6 +2,12 @@
  * ECE 4760 Lab 2 -- Digital Galton Board (RP2350 / Pico 2)
  * Built on Hunter Adams' (vha3@cornell.edu) VGA animation demo.
  *
+ * AUTHORS
+ *  - Amber Li
+ *  - Ivan Huang
+ *  - Zarif Karim
+ *  Date: October 15, 2026
+ *
  * Balls drop onto a 16-row peg board and land in a histogram. A rotary
  * encoder sets the ball count, bounciness, or gravity; each peg strike plays
  * a short DMA-driven sound. Both cores update and draw the balls at 60 fps.
@@ -41,40 +47,62 @@
  *   OPT 6  Overclock 150 -> 300 -> 350 MHz 300 MHz: 3,150 us spare at 10k; 350 MHz: 13,000 (0 us spare)
  *   OPT 7  Ball struct 24 -> 12 bytes ..... RAM ceiling 8k -> 10.3k -> 12.9k -> ~17k
  *   OPT 8  Hot code in SRAM ............... 350 MHz: 16,000 balls with ~600 us spare
+ *
+ * AI-ASSISTED CODE -- PROMPT LOG
+ *  Claude Code (and later Codex) helped write parts of this file. The prompts
+ *  and responses are recorded in SESSION_LOG-2.md; each tagged region below
+ *  carries a [PROMPT #n] comment that matches entry #n in that log.
+ *   #1-#10  rotary encoder: pull-ups, 4-state quadrature ISR, rot_table, accumulator
+ *   #11     one ball + one peg: spawnBall(), updateBall(), reflection math, GPIO setup
+ *   #12     COLLIDE_DIST / TELEPORT_DIST and pointer-based spawn/update signatures
+ *   #13     respawn at the bottom of the SCREEN (removed the phantom inner-box bounce)
+ *   #16     coefficient-of-restitution attempt (later replaced by the bounciness scale)
+ *   #18     histogram + Fallen count reset when a knob parameter changes
+ *   #19-#20 spawn velocity forced odd so a ball can't sit on the top peg
+ *   #21     bin-count labels under the histogram bars
+ *   #22     stop drawing balls once they pass the bottom peg row
+ *   #26     this commenting pass (Authors block, tags, extra comments)
+ *  The OPT 1-8 optimizations are documented by the [OPT n] blocks and in
+ *  Lab2_Galton_Notes.md; they are not in the session log.
  */
 
 // Include the VGA grahics library
-#include "VGA/vga16_graphics_v3.h"
+#include "VGA/vga16_graphics_v3.h"      // VGA driver: drawPixel, fillRect, drawCircle, text, buffers
 // Include standard libraries
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
+#include <stdio.h>                      // sprintf / snprintf for on-screen text
+#include <stdint.h>                     // fixed-width integer types (int16_t, uint8_t, ...)
+#include <stdlib.h>                     // rand(), abs()
+#include <math.h>                       // sinf() for the sound table, sqrtf() for collisions
+#include <string.h>                     // memset() to clear the histogram
 // Include Pico libraries
-#include "pico/stdlib.h"
-#include "pico/divider.h"
-#include "pico/multicore.h"
-#include "pico/sync.h"
+#include "pico/stdlib.h"                // Pico SDK: GPIO, timing, busy_wait
+#include "pico/divider.h"               // hardware divider (div_s64s64 used by divfix)
+#include "pico/multicore.h"             // launch and talk to core 1
+#include "pico/sync.h"                  // semaphores for the core 0 / core 1 fork-join
 // Include hardware libraries
-#include "hardware/pio.h"
-#include "hardware/dma.h"
-#include "hardware/clocks.h"
-#include "hardware/pll.h"
-#include "hardware/spi.h"
-#include "hardware/vreg.h"
+#include "hardware/pio.h"               // PIO (VGA signal generation)
+#include "hardware/dma.h"               // DMA (VGA frame buffer + peg sound)
+#include "hardware/clocks.h"            // clock_configure / clock_get_hz (overclock)
+#include "hardware/pll.h"               // pll_init (350 MHz system PLL)
+#include "hardware/spi.h"               // SPI to the MCP4822 DAC
+#include "hardware/vreg.h"              // core voltage regulator (needed to overclock)
 // Include protothreads
-#include "pt_cornell_rp2040_v1_4.h"
+#include "pt_cornell_rp2040_v1_4.h"     // pt = protothreads (cooperative scheduler)
 
 // === the fixed point macros ========================================
+// fix15 = signed Q15: 1 sign bit, 16 integer bits, 15 fractional bits, so
+// 1.0 = 32768. Integer math only, because the M33 FPU is slow for this much work.
+// A fix15 * fix15 product is 30 fractional bits, so multfix15 widens to 64 bits
+// and shifts back down by 15.
 typedef signed int fix15 ;
 #define multfix15(a,b) ((fix15)((((signed long long)(a))*((signed long long)(b)))>>15))
 #define float2fix15(a) ((fix15)((a)*32768.0f)) // [OPT 3] float, not double: the M33 FPU is single-precision only
 #define fix2float15(a) ((float)(a)/32768.0f)
 #define absfix15(a) abs(a)
-#define int2fix15(a) ((fix15)(a << 15))
-#define fix2int15(a) ((int)(a >> 15))
+#define int2fix15(a) ((fix15)(a << 15))     // integer -> fix15 (exact)
+#define fix2int15(a) ((int)(a >> 15))       // fix15 -> integer (arithmetic shift, floors toward -inf)
 #define char2fix15(a) (fix15)(((fix15)(a)) << 15)
+// fix15 divide: pre-shift the numerator by 15 in 64 bits, hardware 64-bit divider
 #define divfix(a,b) (fix15)(div_s64s64( (((signed long long)(a)) << 15), ((signed long long)(b))))
 
 // unused (left over from the original demo; frame timing comes from the VGA driver)
@@ -92,7 +120,7 @@ typedef signed int fix15 ;
 #define ROT_MODE_BOUNCE  1
 #define ROT_MODE_GRAVITY 2
 #define ROT_NUM_MODES    3
-volatile int rot_mode = ROT_MODE_BALLS ;
+volatile int rot_mode = ROT_MODE_BALLS ;   // written by pollButton() (core 0), read by rot_click() in the ISR
 
 #define MIN_BALLS  1
 #define MAX_BALLS  17000   // [OPT 8] measured limit: ~600 us spare at 350 MHz (RAM would allow ~17k)
@@ -117,14 +145,22 @@ volatile fix15 bounciness = (INIT_BOUNCE << 15) / 100 ;
 volatile int   grav_pct = INIT_GRAV ;
 volatile fix15 gravity  = (INIT_GRAV << 15) / 100 ;
 
+// [PROMPT #18] "can you make it so the histogram and total fallen balls resets
+// when any parameter is changed using the knob?"
 // Set when a knob click changes a parameter; core 0 then clears the histogram
 // and the fallen count at the start of the next frame
 volatile int stats_reset = 0 ;
 
+// [PROMPT #7, #10] "i feel the brush a provide one incrment and brush b provide
+// another... maybe you do have to read a then b and keep track of the sequence
+// of events" -> full 4-state quadrature tracking instead of A-edge-only.
+// States are (A<<1)|B: 0=00, 1=01, 2=10, 3=11. A detent rests at 3 (both
+// pull-ups high); one click walks 3 -> 2 -> 0 -> 1 -> 3 (CW) or the reverse (CCW).
 static volatile uint8_t rot_prev_state = 3 ; // (A<<1)|B ; 3 = rest (both high)
 static volatile int8_t  rot_accum = 0 ;      // steps taken since last rest
 
 // Gray-code step table, index = (prev<<2)|curr: +1 CW, -1 CCW, 0 = no step or bounce
+// (0 also covers illegal jumps that skip a state, which are noise)
 static const int8_t rot_table[16] = {
 /* prev=0(00) */  0, -1, +1,  0,
 /* prev=1(01) */ +1,  0,  0, -1,
@@ -134,9 +170,9 @@ static const int8_t rot_table[16] = {
 
 // One knob detent: adjust the current mode's value (clamped); request a
 // stats reset only if the value actually changed
-static void rot_click(int dir)
+static void rot_click(int dir)   // dir = +1 (CW) or -1 (CCW), from rot_ISR
 {
-  int changed ;
+  int changed ;                  // 1 only if clamping left the value different
   if (rot_mode == ROT_MODE_BALLS) {
     int v = MIN(MAX(rot_counter + dir * BALL_STEP, MIN_BALLS), MAX_BALLS) ;
     changed = (v != rot_counter) ;
@@ -145,7 +181,7 @@ static void rot_click(int dir)
     int v = MIN(MAX(bounce_pct + dir * BOUNCE_STEP, MIN_BOUNCE), MAX_BOUNCE) ;
     changed = (v != bounce_pct) ;
     bounce_pct = v ;
-    bounciness = (v << 15) / 100 ;
+    bounciness = (v << 15) / 100 ;   // hundredths -> fix15 (e.g. 30 -> 0.30)
   } else {
     int v = MIN(MAX(grav_pct + dir * GRAV_STEP, MIN_GRAV), MAX_GRAV) ;
     changed = (v != grav_pct) ;
@@ -172,8 +208,12 @@ static void pollButton(void)
   sw_prev = sw ;
 }
 
+// [PROMPT #1-#10] "Read the rotary encoder page and write a software interface
+// to the rotary encoder..." (final form from #10).
 // Fires on every edge of A or B. A click counts only after 4 steps back at
 // rest, so contact bounce (+1 then -1) cancels out.
+// gpio / events are the SDK callback arguments; both pins share this one handler,
+// so they are unused (we re-read both pins instead).
 void rot_ISR(uint gpio, uint32_t events)
 {
   uint8_t curr_state = (gpio_get(ROT_A) << 1) | gpio_get(ROT_B) ;
@@ -191,15 +231,19 @@ void rot_ISR(uint gpio, uint32_t events)
 // === GALTON BOARD ====================================================
 // =====================================================================
 // gravity and bounciness (set by the knob) are defined with the rotary encoder above
+// [PROMPT #11] "Use the default parameters... peg_radius = 6, gravity = 0.37,
+// bounciness=0.5, ball_radius = 4... vertical separation = 19, horizontal
+// separation = 38." (gravity and bounciness are now knob-controlled; see above)
 #define BALL_RADIUS  4   // max 4: drawSpan() writes at most 4 bytes per span [OPT 8]
 #define PEG_RADIUS   6
-#define PEG_VERT_SEP 19
-#define PEG_HORZ_SEP 38
+#define PEG_VERT_SEP 19  // px between rows
+#define PEG_HORZ_SEP 38  // px between pegs in a row (also the histogram bin width)
 #define SCREEN_W     640
 #define SCREEN_H     480
+// [PROMPT #12] build errors: COLLIDE_DIST / TELEPORT_DIST were undeclared
 // collision distances in fix15 (center-to-center)
-#define COLLIDE_DIST  int2fix15(BALL_RADIUS + PEG_RADIUS)
-#define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)
+#define COLLIDE_DIST  int2fix15(BALL_RADIUS + PEG_RADIUS)   // touching: ball edge meets peg edge
+#define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)   // 1 px clear of contact, so no re-collision
 // [OPT 4] squared collision distance, so the contact test needs no sqrt
 #define COLLIDE_DIST2 int2fix15((BALL_RADIUS + PEG_RADIUS) * (BALL_RADIUS + PEG_RADIUS))
 
@@ -278,15 +322,15 @@ int __not_in_flash_func(nearestPeg)(fix15 x, fix15 y)
 //                12,500 (16 B); at 12 B the CPU became the limit again.
 // =====================================================================
 typedef struct {
-  int32_t xm, ym ;
-  int16_t vx, vy ;
+  int32_t xm, ym ;   // position: fix15 in bits 31..5, meta flag bits in bits 4..0
+  int16_t vx, vy ;   // velocity: fix10 (1/1024 px per frame)
 } ball_t ;
 _Static_assert(sizeof(ball_t) == 12, "ball_t grew -- MAX_BALLS may no longer fit in RAM") ;
 
 #define BALL_POS(m)            ((fix15)((m) >> 5))      // arithmetic shift: exact
-#define BALL_META(b)           (((b)->xm & 31) | (((b)->ym & 31) << 5))
-#define META_LAST_PEG(m)       (((m) >> 1) - 1)
-#define META_BINNED(m)         ((m) & 1)
+#define BALL_META(b)           (((b)->xm & 31) | (((b)->ym & 31) << 5))   // gather the 9 flag bits from xm and ym
+#define META_LAST_PEG(m)       (((m) >> 1) - 1)         // stored +1 so "no peg yet" (-1) is 0
+#define META_BINNED(m)         ((m) & 1)                // 1 = already counted in the histogram
 #define MAKE_META(peg, binned) ((((peg) + 1) << 1) | (binned))
 #define POS_LIMIT              int2fix15(2047)
 #define vel2fix15(v)           ((fix15)(v) * 32)        // fix10 -> fix15, exact
@@ -309,7 +353,7 @@ static inline void ballStore(ball_t* b, fix15 x, fix15 y, fix15 vx, fix15 vy, in
   b->vy = fix2vel(vy) ;
 }
 
-ball_t balls[MAX_BALLS] ;
+ball_t balls[MAX_BALLS] ;   // 17,000 x 12 B = 204 KB of SRAM
 int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
 
 // === HISTOGRAM ===
@@ -333,6 +377,11 @@ int num_balls = 0 ;     // balls currently animated: balls[0 .. num_balls-1]
 int bins_core[2][NUM_BINS] ;
 int fallen_core[2] ;
 
+// [PROMPT #11, #13] "When the ball exits the bottom of the screen, it should
+// automatically drop again from the top."  Also called for every respawn.
+// [PROMPT #19, #20] "does this code avoid the case where a ball might spawn
+// with 0 x velocity and stay stuck bouncing on the first peg?" / "what does it
+// mean to force it odd" -> OR with 1 sets the low bit, so vx can never be 0.
 // Drop a ball just above the top peg with a small random vx.
 // [OPT 7] vx is forced odd (never 0, which would balance on the top peg
 // forever) and x gets +/-0.5 px jitter, keeping enough distinct paths at fix10.
@@ -354,22 +403,26 @@ void __not_in_flash_func(binBall)(fix15 x)
   fallen_core[core]++ ;
 }
 
+// [PROMPT #21] "Below each histogram bar can you write the current value of
+// each bar?"
 // Compact 3x5 digits keep exact counts readable beneath the narrow bins.
 // Alternate rows so even a ten-digit count cannot overlap its neighbors.
 static void drawBinCount(int bin, int count)
 {
+  // One byte per pixel row of the glyph; the low 3 bits are the 3 columns
+  // (bit 2 = leftmost), e.g. '0' = 111 / 101 / 101 / 101 / 111.
   static const uint8_t digits[10][5] = {
     {7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7},
     {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1}, {7, 4, 7, 1, 7},
     {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7},
     {7, 5, 7, 1, 7}
   } ;
-  char label[12] ;
+  char label[12] ;                                      // fits any 32-bit int plus the terminator
   int length = snprintf(label, sizeof(label), "%d", count) ;
-  int width = length * 4 - 1 ;
-  int x = BIN0_CENTER_X + bin * PEG_HORZ_SEP - width / 2 ;
-  x = MIN(MAX(x, 0), SCREEN_W - width) ;
-  int y = HIST_LABEL_Y + (bin & 1) * 8 ;
+  int width = length * 4 - 1 ;                          // 3 px per digit + 1 px gap
+  int x = BIN0_CENTER_X + bin * PEG_HORZ_SEP - width / 2 ;   // centered under the bar
+  x = MIN(MAX(x, 0), SCREEN_W - width) ;                // keep the outer labels on screen
+  int y = HIST_LABEL_Y + (bin & 1) * 8 ;                // odd bins drop to the second row
   for (int i = 0; i < length; i++) {
     int digit = label[i] - '0' ;
     for (int row = 0; row < 5; row++) {
@@ -425,9 +478,11 @@ void drawHistogram()
 
 // Precomputed sound, each sample already has the DAC config bits OR'd in
 static uint16_t peg_sound[PEG_SOUND_LEN] ;
+// The control channel copies this POINTER (not the table) into the data channel's
+// read address, which is how each trigger rewinds playback to sample 0
 static uint16_t * peg_sound_addr = &peg_sound[0] ;
-static int snd_data_chan ;
-static int snd_ctrl_chan ;
+static int snd_data_chan ;   // streams samples to the SPI/DAC
+static int snd_ctrl_chan ;   // chained: resets snd_data_chan's read address
 
 // Set up SPI, build the sound table, and configure the DMA
 void initPegSound()
@@ -508,6 +563,14 @@ void __not_in_flash_func(playPegSound)()
 //   Expected / measured : modest gain on top of OPT 3;
 //                5,000 -> 5,200 balls at 150 MHz (+4%).
 // =====================================================================
+// [PROMPT #11] "...using the pseudocode above (which comes from the collision
+// physics for the digital Galton Board webpage), get one ball to bounce off one
+// peg... a peg is a ball with zero velocity and infinite mass." The substeps,
+// the v.n guard and the pointer signature were hand-edited afterwards, and
+// [PROMPT #12] fixed the resulting build errors.
+// [PROMPT #16] tried the coefficient-of-restitution form dv = -(1+CR)(n.v)n;
+// the final code instead reflects with -2(n.v)n and then scales the whole
+// velocity by `bounciness` on a new peg (see below).
 // One frame of ball physics. Peg collision: dv = -2 (n.v) n, where n is the
 // unit normal from peg to ball (a peg is an infinite-mass ball at rest).
 void __not_in_flash_func(updateBall)(ball_t* b)
@@ -586,6 +649,9 @@ void __not_in_flash_func(updateBall)(ball_t* b)
     binned = 1 ;
   }
 
+  // [PROMPT #13] "the current code lets it double bounce when the ball touches the
+  // peg and bounces up and hits the invisible wall downward" -> only the real
+  // screen edge counts; there are no side walls, as on a real Galton board.
   // Re-spawn any ball that falls thru the bottom of the SCREEN
   if (y > int2fix15(SCREEN_H)) {
     spawnBall(b) ;
@@ -596,7 +662,7 @@ void __not_in_flash_func(updateBall)(ball_t* b)
   ballStore(b, x, y, vx, vy + gravity, MAKE_META(last_peg, binned)) ;
 }
 
-// Ball color (set from the serial thread)
+// Ball color (set from the serial thread); VGA palette index 1-15
 char color = CYAN ;
 
 // =====================================================================
@@ -741,6 +807,8 @@ static inline void drawBall(int x0, int y0, char c)
 }
 
 // [OPT 2] Physics + draw for one ball, back to back, so the cores never sync mid-frame
+// [PROMPT #22] "can you stop drawing the balls when it reaches the peg board
+// bottom so they dont cover the histogram"
 static inline void updateAndDrawBall(ball_t* b)
 {
   updateBall(b) ;
@@ -778,8 +846,10 @@ void __no_inline_not_in_flash_func(updateAndDrawRange)(int from, int to)
 // === users serial input thread
 // ==================================================
 // Reads a color (1-15) from the serial port and applies it to the balls
+// (from the original demo; runs on core 0 alongside protothread_anim)
 static PT_THREAD (protothread_serial(struct pt *pt))
 {
+    // Mark beginning of thread
     PT_BEGIN(pt);
     // stores user input
     static int user_input ;
@@ -798,7 +868,7 @@ static PT_THREAD (protothread_serial(struct pt *pt))
         serial_read ;
         // convert input string to number
         sscanf(pt_serial_in_buffer,"%d", &user_input) ;
-        // update ball color
+        // update ball color (ignore anything outside the 15 valid palette entries)
         if ((user_input > 0) && (user_input < 16)) {
           color = (char)user_input ;
         }
@@ -816,7 +886,7 @@ static PT_THREAD (protothread_anim(struct pt *pt))
     initPegs() ;
     initBallSprite() ;
 
-    static char text_str[40] ;
+    static char text_str[40] ;   // static: protothread locals must survive PT_YIELD / PT_WAIT
 
     while(1) {
       // Wait for vsync (the DMA has just swapped buffers)
@@ -862,6 +932,9 @@ static PT_THREAD (protothread_anim(struct pt *pt))
       updateAndDrawRange(0, split) ;
 
       // === TEXT === (core times shown are last frame's; core0_us includes the text)
+      // [PROMPT #5, #6, #9] the original "Count: %d" encoder readout (sprintf
+      // kept after #8's sprintf-free version was reverted) grew into this panel.
+      // Each field is drawn with a black background so it overwrites last frame's text.
       sprintf(text_str, "Balls:  %d", num_balls) ;
       drawTextVGA437(10, 10, text_str, WHITE, BLACK) ;
       sprintf(text_str, "Fallen: %d", fallen_core[0] + fallen_core[1]) ;
@@ -917,6 +990,8 @@ static PT_THREAD (protothread_anim1(struct pt *pt))
     // Mark beginning of thread
     PT_BEGIN(pt);
 
+    // Runs on core 1 only. Per-frame order: clear bottom half -> histogram ->
+    // barrier -> pegs -> its share of the balls -> signal done.
     while(1) {
       // [OPT 2] Fork: wait for core 0 to start the frame
       PT_SEM_SDK_WAIT(pt, &draw_semaphore) ;
@@ -1000,15 +1075,17 @@ int main(){
   clock_configure_undivided(clk_peri, 0,
                             CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
                             USB_CLK_HZ) ;
-  // initialize stdio
+  // initialize stdio (USB/UART serial for the color prompt)
   stdio_init_all() ;
 
-  // initialize VGA
+  // initialize VGA (PIO state machines, DMA chain, frame buffers)
   initVGA() ;
 
   // initialize the DAC + DMA for the peg sound
   initPegSound() ;
 
+  // [PROMPT #1-#10] rotary encoder setup, final form from #10:
+  // interrupt on BOTH pins so rot_ISR sees every step of the 4-state sequence
   // === ROTARY ENCODER === A/B interrupt on both edges, with pull-ups
   gpio_init(ROT_A);
   gpio_init(ROT_B);
@@ -1036,14 +1113,14 @@ int main(){
   sem_init(&bot_semaphore, 0, 1) ;
   sem_init(&done_semaphore, 0, 1) ;
 
-  // start core 1
+  // start core 1 (semaphores must exist first, core 1 waits on draw_semaphore)
   multicore_reset_core1();
   multicore_launch_core1(&core1_main);
 
-  // add threads
+  // add threads (core 0: serial input + animation; core 1: see core1_main)
   pt_add_thread(protothread_serial);
   pt_add_thread(protothread_anim);
 
-  // start scheduler
+  // start scheduler (never returns)
   pt_schedule_start ;
 }

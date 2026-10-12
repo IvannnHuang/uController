@@ -982,3 +982,82 @@ conversation, including relevant code snippets and statistics formulas.
 Preserved earlier entries and distinguished the Codex continuation from
 the original Claude Code history. No firmware changes were made for this
 log update.
+
+---
+
+## Claude Code continuation - October 12, 2026
+
+## 26. In-depth code commenting, authors block, and prompt provenance
+
+*(Prompt spelling corrected for readability. Used in the lab report to show
+that Claude was also used to comment the code in depth.)*
+
+**Prompt:**
+> Hello, I need help commenting code. On top of that, it might help to also
+> document inside the code which prompts produced certain code snippets.
+> Please also make an authors section for Amber Li, Ivan Huang, and Zarif
+> Karim, October 15th, 2026.
+>
+> You will find prompts with their according outputs in
+> `Lab2 - Galton/SESSION_LOG-2.md`. You may also make comments based on
+> `Lab2 - Galton/Lab2_Galton_Notes.md`.
+>
+> Then, in the SESSION LOG, also note this specific prompt, showing that
+> Claude was also used to comment out code in depth. This prompt will be used
+> in the lab report. Make it of similar commenting convention to my Lab 1 in
+> `Lab1 - Synthesizing Birdsong/a_Timer_Interrupt_DDS_Demo/dactest.c`.
+>
+> Here is the file to comment. It has a lot of comments already, which is
+> good, so just add in what else you think we should add:
+> `Lab2 - Galton/Animation_Demo/animation.c`
+
+**Response:** Read `animation.c`, both logs, and the Lab 1 `dactest.c` to
+match its style: a header block, `// === section ===` banners, and short
+trailing comments on declarations and setup calls. Only comments were added;
+no executable code was changed. Existing comments, including the `[OPT n]`
+blocks, were kept. Display and build behavior were not re-tested for this
+prompt.
+
+Added to `animation.c`:
+- **Authors block** in the file header (Amber Li, Ivan Huang, Zarif Karim,
+  October 15, 2026).
+- **"AI-ASSISTED CODE -- PROMPT LOG"** in the header: maps each log entry
+  (#1-#22) to the code it produced, and notes that the OPT 1-8 work is
+  documented by the `[OPT n]` blocks and `Lab2_Galton_Notes.md` rather than
+  by this log.
+- **`[PROMPT #n]` tags** at the code each prompt produced, with the original
+  request quoted: the rotary encoder state and ISR (#1-#10), the board
+  parameters (#11), `COLLIDE_DIST`/`TELEPORT_DIST` (#12), the bottom-of-screen
+  respawn (#13), `updateBall` (#11, #16), the stats reset (#18), odd-`vx`
+  spawn (#19, #20), histogram labels (#21), hiding balls below the board
+  (#22), and the on-screen text panel (#5, #6, #9).
+- **Provenance note on #16:** the coefficient-of-restitution form was later
+  replaced by the `-2(n.v)n` reflection plus a `bounciness` scale, and the
+  comment says so rather than implying #16 is the current code.
+- **Extra explanatory comments:** a trailing comment on every `#include`;
+  the Q15 format and why `multfix15` widens to 64 bits; the encoder state
+  numbering (0-3) and the full click sequence; the packed `ball_t` fields and
+  meta macros; the digit-glyph bit layout in `drawBinCount`; why the sound
+  DMA stores a pointer; and the protothread, startup, and `main()` ordering.
+
+```c
+// Header excerpt added to animation.c
+/**
+ * AUTHORS
+ *  - Amber Li
+ *  - Ivan Huang
+ *  - Zarif Karim
+ *  Date: October 15, 2026
+ ...
+ * AI-ASSISTED CODE -- PROMPT LOG
+ *  ... each tagged region below carries a [PROMPT #n] comment that matches
+ *  entry #n in that log.
+ */
+```
+
+```c
+// Example of a prompt-provenance tag (spawnBall)
+// [PROMPT #19, #20] "does this code avoid the case where a ball might spawn
+// with 0 x velocity and stay stuck bouncing on the first peg?" / "what does it
+// mean to force it odd" -> OR with 1 sets the low bit, so vx can never be 0.
+```
