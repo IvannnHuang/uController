@@ -68,9 +68,6 @@
 // Arrays in which raw measurements will be stored
 fix15 acceleration[3], gyro[3];
 
-// ADDED: set at startup if the MPU6050 answers on I2C
-volatile int imu_ok = 0 ;
-
 // Arrays for circular display buffer
 fix15 ax[PLOT_WIDTH] ;
 fix15 ay[PLOT_WIDTH] ;
@@ -80,7 +77,6 @@ fix15 gy[PLOT_WIDTH] ;
 fix15 gz[PLOT_WIDTH] ;
 
 // ===== ADDED: complementary filter =====
-#define PI 3.14159265
 
 // Low-passed accelerometer measurements (15.16 fixed point, g's)
 fix15 filtered_ax, filtered_az ;
@@ -175,8 +171,6 @@ void on_pwm_wrap() {
     pwm_clear_irq(pwm_gpio_to_slice_num(5));
     gpio_put(14, !gpio_get(14)) ;
 
-    // MOVED: fan duty cycle update is now after the controller (below)
-
     // Read the IMU
     // NOTE! This is in 15.16 fixed point. Accel in g's, gyro in deg/s
     // If you want these values in floating point, call fix2float15() on
@@ -189,7 +183,7 @@ void on_pwm_wrap() {
     // ===== END ADDED =====
 
     // Accelerometer angle (degrees - 15.16 fixed point)
-    // NO SMALL ANGLE APPROXIMATION --> ADD LOW PASS FILTER
+    // NO SMALL ANGLE APPROXIMATION --> ADDED LOW PASS FILTER
     // IMU rotates about +y axis
     // FIXED: removed +PI so flat (arm horizontal) = 0 deg, range -180 to +180
     accel_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);
@@ -199,14 +193,14 @@ void on_pwm_wrap() {
     gyro_angle_delta = multfix15(gyro[1], zeropt001) ;
 
     // Complementary angle (degrees - 15.16 fixed point)
-    // gyro and accel share the same sign convention so + instead
+    // gyro and accel share the same sign convention so + instead between (comp ang + gyro ang)
     complementary_angle = multfix15(complementary_angle + gyro_angle_delta, zeropt999) + multfix15(accel_angle, zeropt001);
 
     // ===== ADDED: proportional control =====
     if (closed_loop) {
         // Positive error = arm is below the target, so more thrust is needed
         angle_error = desired_angle - complementary_angle ;
-        // Kp * error in 64 bits (avoids overflow), >>32 converts 15.16 * 15.16 to an integer duty
+        // Kp * error in 64 bits (avoids overflow), >>32 converts 15.16 * 15.16 to an integer duty cycle
         int u = (int)((((long long)Kp) * ((long long)angle_error)) >> 32) ;
         // The fan can only push one way, so clamp to the valid duty range
         if (u < 0) u = 0 ;
@@ -215,7 +209,7 @@ void on_pwm_wrap() {
     }
     // ===== END ADDED =====
 
-    // Update fan duty cycle (MOVED here so the new control value is applied immediately)
+    // Update fan duty cycle
     if (control!=old_control) {
         old_control = control ;
         pwm_set_chan_level(slice_num, PWM_CHAN_A, control);
@@ -238,7 +232,7 @@ void on_pwm_wrap() {
         gy[head] = gyro[1] ;
         gz[head] = gyro[2] ;
         
-        // ===== ADDED: store angle estimates for display =====
+        // ===== ADDED: store complementary filter angle estimates for display =====
         accel_angle_buf[head] = accel_angle ;
         comp_angle_buf[head] = complementary_angle ;
         // ===== END ADDED =====
@@ -287,7 +281,7 @@ static PT_THREAD (protothread_draw(struct pt *pt))
                 (int)(NEW_RANGE*((float)((fix2float15(gz[start]))-OLD_MIN)/OLD_RANGE))), GREEN) ;
 
 
-            // ===== ADDED: angle traces on top plot =====
+            // ===== ADDED: complementary filter angle traces on top plot =====
             // Angles rotate about +y axis within the range ~[-90, 90] so 0 degree is when the IMU is parallel to the floor
             drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
                 (int)(NEW_RANGE*((float)((fix2float15(accel_angle_buf[start]))-OLD_MIN)/OLD_RANGE))), MAGENTA) ;
@@ -456,7 +450,6 @@ int main() {
     mpu6050_read_raw(acceleration, gyro);
 
     // // ===== ADDED: seed filters with first reading so the angle doesn't start at 0 =====
-    // FIXED: re-enabled seed with the z axis, so comp angle starts at the real angle instead of 0
     filtered_ax = acceleration[0] ;
     filtered_az = acceleration[2] ;
     complementary_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);
@@ -497,7 +490,6 @@ int main() {
     // start core 1 
     multicore_reset_core1();
     multicore_launch_core1(core1_entry);
-    printf("Core 1 launched, starting serial thread\n\r") ;   // ADDED: startup diagnostics
 
     // start core 0
     gpio_init(14) ;
