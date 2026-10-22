@@ -4,8 +4,9 @@
  * This demonstration utilizes the MPU6050.
  * It gathers raw accelerometer/gyro measurements, scales
  * them, and plots them to the VGA display. The top plot
- * shows gyro measurements, bottom plot shows accelerometer
- * measurements.
+ * shows the target and actual (complementary) angle, bottom
+ * plot shows the fan duty cycle (PID output).
+ * CHANGED: top plot was gyro, bottom plot was accelerometer.
  * 
  * HARDWARE CONNECTIONS
  *  - GPIO 16 ---> VGA Hsync
@@ -91,6 +92,10 @@ fix15 accel_angle_buf[PLOT_WIDTH] ;
 fix15 comp_angle_buf[PLOT_WIDTH] ;
 // ===== END ADDED =====
 
+// ===== ADDED: circular display buffer for the fan duty cycle (PID output) =====
+int duty_buf[PLOT_WIDTH] ;
+// ===== END ADDED =====
+
 // Pointer to head of buffer
 volatile int head = 0 ;
 
@@ -111,6 +116,8 @@ static struct pt_sem vga_semaphore ;
 // Some paramters for PWM
 #define WRAPVAL 6000
 #define CLKDIV  25.0
+// ADDED: max allowed fan duty cycle (closed loop and manual 'p'), below WRAPVAL
+#define DUTY_MAX 4500
 // GPIO we're using for PWM
 #define PWM_OUT 4
 uint slice_num ;
@@ -125,6 +132,16 @@ volatile fix15 Kp = int2fix15(100) ;            // gain (duty counts per degree,
 fix15 angle_error ;                             // desired - measured (degrees, 15.16)
 // ===== END ADDED =====
 
+// ===== ADDED: derivative control =====
+volatile fix15 Kd = int2fix15(0) ;              // gain (duty counts per deg/s, 15.16), 0 = off
+// ===== END ADDED =====
+
+// ===== ADDED: integral control =====
+volatile fix15 Ki = int2fix15(0) ;              // gain (duty counts per deg, per 1 ms sample, 15.16), 0 = off
+volatile int i_max = 3000 ;                     // anti-windup cap on the I term (duty counts)
+volatile fix15 i_term = 0 ;                     // accumulated Ki*error (duty counts, 15.16)
+// ===== END ADDED =====
+
 
 void drawAxes() {
     // Draw the static aspects of the display
@@ -136,14 +153,18 @@ void drawAxes() {
     drawHLine(75, 355, 5, CYAN) ;
     drawHLine(75, 280, 5, CYAN) ;
     drawVLine(80, 280, 150, CYAN) ;
+    // CHANGED: labels are now duty cycle (0 to DUTY_MAX), were accel (-2 to +2 g)
+    sprintf(screentext, "%d", DUTY_MAX/2) ;
+    setCursor(45, 350) ;
+    writeString(screentext) ;
+    sprintf(screentext, "%d", DUTY_MAX) ;
+    setCursor(45, 280) ;
+    writeString(screentext) ;
     sprintf(screentext, "0") ;
-    setCursor(50, 350) ;
-    writeString(screentext) ;
-    sprintf(screentext, "+2") ;
-    setCursor(50, 280) ;
-    writeString(screentext) ;
-    sprintf(screentext, "-2") ;
     setCursor(50, 425) ;
+    writeString(screentext) ;
+    sprintf(screentext, "Duty") ;
+    setCursor(45, 300) ;
     writeString(screentext) ;
 
     // Draw top plot
@@ -197,16 +218,41 @@ void on_pwm_wrap() {
     complementary_angle = multfix15(complementary_angle + gyro_angle_delta, zeropt999) + multfix15(accel_angle, zeropt001);
 
     // ===== ADDED: proportional control =====
+    // ===== CHANGED: now PID control (derivative and integral terms added below) =====
     if (closed_loop) {
         // Positive error = arm is below the target, so more thrust is needed
         angle_error = desired_angle - complementary_angle ;
         // Kp * error in 64 bits (avoids overflow), >>32 converts 15.16 * 15.16 to an integer duty cycle
-        int u = (int)((((long long)Kp) * ((long long)angle_error)) >> 32) ;
+        long long p_term = ((long long)Kp) * ((long long)angle_error) ;
+        // ===== ADDED: derivative term =====
+        // d(error)/dt = -d(angle)/dt = -gyro[1] (gyro y is the arm's angular rate in deg/s).
+        // Using the gyro directly avoids the noise of differencing the angle estimate.
+        // Opposes motion: arm rising fast -> less thrust, arm falling fast -> more thrust.
+        long long d_term = ((long long)Kd) * ((long long)gyro[1]) ;
+        // ===== END ADDED =====
+        // ===== ADDED: integral term =====
+        // Accumulate Ki*error every sample (rather than summing error and scaling later),
+        // so the sum is already in duty counts and can't overflow 15.16, and changing Ki
+        // doesn't make the output jump. At steady state P and D are ~0, so the I term
+        // alone supplies the duty that holds the arm up against gravity.
+        i_term += multfix15(Ki, angle_error) ;
+        // Anti-windup: cap at i_max (set it a bit above the duty that holds the arm at the
+        // target). Floor at 0 because the fan can't pull down, so negative I only adds lag.
+        if (i_term > int2fix15(i_max)) i_term = int2fix15(i_max) ;
+        if (i_term < 0) i_term = 0 ;
+        // ===== END ADDED =====
+        int u = (int)((p_term - d_term) >> 32) + fix2int15(i_term) ;   // CHANGED: was Kp * error only, then P - D
         // The fan can only push one way, so clamp to the valid duty range
         if (u < 0) u = 0 ;
-        if (u > WRAPVAL) u = WRAPVAL ;
+        if (u > DUTY_MAX) u = DUTY_MAX ;   // CHANGED: was WRAPVAL (6000)
         control = u ;
     }
+    // ===== ADDED: clear the integrator whenever the controller is off =====
+    // so it starts from 0 the next time closed loop is turned on
+    else {
+        i_term = 0 ;
+    }
+    // ===== END ADDED =====
     // ===== END ADDED =====
 
     // Update fan duty cycle
@@ -235,6 +281,10 @@ void on_pwm_wrap() {
         // ===== ADDED: store complementary filter angle estimates for display =====
         accel_angle_buf[head] = accel_angle ;
         comp_angle_buf[head] = complementary_angle ;
+        // ===== END ADDED =====
+
+        // ===== ADDED: store fan duty cycle for display =====
+        duty_buf[head] = control ;
         // ===== END ADDED =====
 
         // Move the pointer to the oldest data
@@ -267,27 +317,18 @@ static PT_THREAD (protothread_draw(struct pt *pt))
         // Plot data oldest-->newest
         start = head ;
         for (i = 0; i < PLOT_WIDTH; i++) {
+            // ===== CHANGED: bottom plot is now duty cycle (was ax/ay/az) =====
+            // 0 duty at the bottom of the plot, DUTY_MAX at the top
             drawPixel(LEFT_EDGE + i, (BOTTOM_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(ax[start])*ACCEL_SCALE)-OLD_MIN)/OLD_RANGE))), WHITE) ;
-            drawPixel(LEFT_EDGE + i, (BOTTOM_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(ay[start])*ACCEL_SCALE)-OLD_MIN)/OLD_RANGE))), RED) ;
-            drawPixel(LEFT_EDGE + i, (BOTTOM_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(az[start])*ACCEL_SCALE)-OLD_MIN)/OLD_RANGE))), GREEN) ;
-            drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(gx[start]))-OLD_MIN)/OLD_RANGE))), WHITE) ;
-            drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(gy[start]))-OLD_MIN)/OLD_RANGE))), RED) ;
-            drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(gz[start]))-OLD_MIN)/OLD_RANGE))), GREEN) ;
+                (int)(NEW_RANGE*((float)duty_buf[start]/DUTY_MAX))), ORANGE) ;
+            // ===== END CHANGED =====
 
-
-            // ===== ADDED: complementary filter angle traces on top plot =====
+            // ===== CHANGED: top plot shows only the actual (complementary) angle =====
+            // (gyro x/y/z and accel-only angle traces removed; target line drawn below)
             // Angles rotate about +y axis within the range ~[-90, 90] so 0 degree is when the IMU is parallel to the floor
             drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(accel_angle_buf[start]))-OLD_MIN)/OLD_RANGE))), MAGENTA) ;
-            drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
                 (int)(NEW_RANGE*((float)((fix2float15(comp_angle_buf[start]))-OLD_MIN)/OLD_RANGE))), YELLOW) ;
-            // ===== END ADDED =====
+            // ===== END CHANGED =====
 
             start = ((start+1)==PLOT_WIDTH) ? 0 : (start+1) ;
         }
@@ -313,9 +354,16 @@ static PT_THREAD (protothread_draw(struct pt *pt))
         // ===== ADDED: controller readout =====
         setTextColor(LIGHT_BLUE) ;
         setCursor(85, 45) ;
-        sprintf(screentext, "Target: %6.1f  Kp: %6.1f  Duty: %4d  %s",
-            fix2float15(desired_angle), fix2float15(Kp), control, closed_loop ? "CLOSED LOOP" : "MANUAL") ;
+        // CHANGED: added Kd to the readout
+        sprintf(screentext, "Target: %6.1f  Kp: %6.1f  Kd: %6.1f  Duty: %4d  %s",
+            fix2float15(desired_angle), fix2float15(Kp), fix2float15(Kd), control, closed_loop ? "CLOSED LOOP" : "MANUAL") ;
         writeString(screentext) ;
+        // ===== ADDED: integral readout (second line) =====
+        setCursor(85, 57) ;
+        sprintf(screentext, "Ki: %7.4f  I max: %4d  I term: %6.1f",
+            fix2float15(Ki), i_max, fix2float15(i_term)) ;
+        writeString(screentext) ;
+        // ===== END ADDED =====
         // ===== END ADDED =====
     }
 
@@ -348,21 +396,22 @@ static PT_THREAD (protothread_serial(struct pt *pt))
                 threshold = test_in ;
             }
         }
-        // ===== ADDED: 'p' command sets fan duty cycle (from PWM_Demo) =====
-        else if (classifier=='p') {
-            sprintf(pt_serial_out_buffer, "duty cycle (0-%d): ", WRAPVAL);
+        // ===== ADDED: 'n' command sets fan duty cycle (from PWM_Demo) =====
+        else if (classifier=='n') {
+            // CHANGED: limit is DUTY_MAX (was WRAPVAL)
+            sprintf(pt_serial_out_buffer, "duty cycle (0-%d): ", DUTY_MAX);
             serial_write ;
             serial_read ;
             // convert input string to number
             sscanf(pt_serial_in_buffer,"%d", &test_in) ;
-            if (test_in >= 0 && test_in <= WRAPVAL) {
+            if (test_in >= 0 && test_in <= DUTY_MAX) {
                 closed_loop = 0 ;   // ADDED: manual duty turns off the controller
                 control = test_in ;
             }
         }
         // ===== END ADDED =====
         // ===== ADDED: controller commands =====
-        // 'a' = target angle, 'k' = Kp, 'c' = closed loop on (1) / off (0)
+        // 'a' = target angle, 'k' = Kp, 'd' = Kd, 'i' = Ki, 'm' = I term cap, 'c' = closed loop on (1) / off (0)
         else if (classifier=='a') {
             sprintf(pt_serial_out_buffer, "target angle (-180 to 180 deg): ");
             serial_write ;
@@ -372,7 +421,7 @@ static PT_THREAD (protothread_serial(struct pt *pt))
                 desired_angle = float2fix15(float_in) ;
             }
         }
-        else if (classifier=='k') {
+        else if (classifier=='p') {
             sprintf(pt_serial_out_buffer, "Kp (duty counts per degree): ");
             serial_write ;
             serial_read ;
@@ -381,6 +430,37 @@ static PT_THREAD (protothread_serial(struct pt *pt))
                 Kp = float2fix15(float_in) ;
             }
         }
+        // ===== ADDED: 'd' command sets Kd =====
+        else if (classifier=='d') {
+            sprintf(pt_serial_out_buffer, "Kd (duty counts per deg/s): ");
+            serial_write ;
+            serial_read ;
+            sscanf(pt_serial_in_buffer,"%f", &float_in) ;
+            if (float_in >= 0.0f && float_in <= 6000.0f) {
+                Kd = float2fix15(float_in) ;
+            }
+        }
+        // ===== END ADDED =====
+        // ===== ADDED: 'i' sets Ki, 'm' sets the I term cap =====
+        else if (classifier=='i') {
+            sprintf(pt_serial_out_buffer, "Ki (duty counts per deg per ms, e.g. 0.03): ");
+            serial_write ;
+            serial_read ;
+            sscanf(pt_serial_in_buffer,"%f", &float_in) ;
+            if (float_in >= 0.0f && float_in <= 100.0f) {
+                Ki = float2fix15(float_in) ;
+            }
+        }
+        else if (classifier=='m') {
+            sprintf(pt_serial_out_buffer, "I term max (0-%d): ", DUTY_MAX);
+            serial_write ;
+            serial_read ;
+            sscanf(pt_serial_in_buffer,"%d", &test_in) ;
+            if (test_in >= 0 && test_in <= DUTY_MAX) {
+                i_max = test_in ;
+            }
+        }
+        // ===== END ADDED =====
         else if (classifier=='c') {
             sprintf(pt_serial_out_buffer, "closed loop (1 = on, 0 = off): ");
             serial_write ;

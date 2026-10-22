@@ -60,3 +60,13 @@ Source: [Phenomenological Introduction to PID](https://vanhunteradams.com/PID/PI
 - [ ] VGA screenshots (bonus: separate P/I/D traces)
 - [ ] Windup behavior with vs without the cap (if you tested it)
 - [ ] Stable angle range — note difficulty above 90° (nonlinear)
+
+---
+
+## 4. Implementation change log (imu_demo.c)
+| Date | Change |
+|---|---|
+| 2026-10-21 | **P control** added in the 1 kHz ISR: `u = Kp * (desired - comp_angle)`, clamped 0..6000. Serial `a` (target), `k` (Kp), `c` (closed loop on/off). |
+| 2026-10-22 | **D control** added using the gyro rate (per lecture): `u = Kp*error - Kd*gyro[1]`. Serial `d` sets Kd (default 0 = off). Kd shown on the VGA readout. |
+| 2026-10-22 | **Duty cap** lowered to 4500 (`DUTY_MAX`) for both the controller clamp and manual `p`; PWM period (`WRAPVAL` = 6000) unchanged. |
+| 2026-10-22 | **I control** added: `i_term += Ki*error` each 1 ms sample, clamped to [0, `i_max`] (anti-windup, default 3000), cleared when closed loop is off. `u = Kp*error - Kd*gyro[1] + i_term`. Serial `i` (Ki, default 0) and `m` (`i_max`). Ki, I max and I term shown on a second VGA readout line. |

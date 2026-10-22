@@ -361,3 +361,124 @@ else if (classifier=='c') { /* 1 = closed_loop on, 0 = off and control = 0 */ }
 ```
 
 ---
+
+## 14. How to tune Kp (bouncing vs. settling ~10° low)
+**Date:** 2026-10-22
+
+**Prompt:**
+> We added proportional closed loop control. how do we tune kp for the fan to drive the arm to a specified angle? Sometimes it bounces and sometimes its not strong enough to reach the desired angle (~10 deg lower).
+
+**Answer:**
+Both symptoms are limits of P-only control, so no single Kp fixes both. The arm needs a nonzero holding duty against gravity, so P settles where `error_ss = u_hold / Kp` (can be checked by finding the holding duty with `p`). Raising Kp shrinks that error, but the arm is a lightly damped pendulum with fan lag, so it overshoots and oscillates, and the `u < 0` clamp lets it free-fall on overshoot. Tuning procedure: raise Kp to sustained oscillation and use about half; add D from the gyro rate to damp it (lets Kp go higher); then add I with anti-windup, or a feedforward holding duty `u_ff`, to remove the offset. Watch the duty readout: swinging 0↔6000 means the gain is too high, pinned at 6000 means the fan can't reach the angle.
+
+**Code (suggested, not applied):** PID + feedforward sketch for the ISR (Kd, Ki, `u_ff`, clamped `error_integral`, `d = Kd * gyro[1]` subtracted).
+
+---
+
+## 15. Add derivative control
+**Date:** 2026-10-22
+
+**Prompt:**
+> can you add derivative control? also make sure to comment the sections you are changing and add the change log to the markdowns.
+
+**Answer:**
+Added a D term to the ISR controller, using the gyro y rate directly (d(error)/dt = −gyro[1] because the target is constant), which avoids the noise of differencing the angle estimate, as recommended in lecture. The control law is now `u = Kp*error − Kd*gyro[1]`, still clamped to 0..6000. Added a `d` serial command (0–6000) to set Kd, which defaults to 0 so behaviour is unchanged until it is set, and added Kd to the VGA readout. Marked the changes with `ADDED` / `CHANGED` comments, added an implementation change log section to `pid_lecture_breakdown.md`, and logged the previous (tuning) prompt as entry 14. Builds cleanly.
+
+**Code (imu_demo.c):**
+```c
+// Globals
+volatile fix15 Kd = int2fix15(0) ;              // gain (duty counts per deg/s, 15.16), 0 = off
+
+// ISR controller
+angle_error = desired_angle - complementary_angle ;
+long long p_term = ((long long)Kp) * ((long long)angle_error) ;
+long long d_term = ((long long)Kd) * ((long long)gyro[1]) ;
+int u = (int)((p_term - d_term) >> 32) ;   // CHANGED: was Kp * error only
+if (u < 0) u = 0 ;
+if (u > WRAPVAL) u = WRAPVAL ;
+control = u ;
+
+// Draw thread readout
+sprintf(screentext, "Target: %6.1f  Kp: %6.1f  Kd: %6.1f  Duty: %4d  %s",
+    fix2float15(desired_angle), fix2float15(Kp), fix2float15(Kd), control, closed_loop ? "CLOSED LOOP" : "MANUAL") ;
+
+// Serial thread
+else if (classifier=='d') { /* read float -> Kd (0..6000) */ }
+```
+
+---
+
+## 16. Clamp the duty cycle to 4500
+**Date:** 2026-10-22
+
+**Prompt:**
+> can you clamp the duty cycle to max 4500
+
+**Answer:**
+Added `#define DUTY_MAX 4500`. The closed-loop clamp now limits `u` to `DUTY_MAX` instead of `WRAPVAL` (6000), and the manual `p` command only accepts 0–4500. The PWM period (`WRAPVAL` = 6000) is unchanged, so 4500 is 75% duty. Builds cleanly.
+
+**Code (imu_demo.c):**
+```c
+#define DUTY_MAX 4500
+
+// ISR controller
+if (u > DUTY_MAX) u = DUTY_MAX ;   // CHANGED: was WRAPVAL (6000)
+
+// Serial 'p' command
+sprintf(pt_serial_out_buffer, "duty cycle (0-%d): ", DUTY_MAX);
+if (test_in >= 0 && test_in <= DUTY_MAX) {
+```
+
+---
+
+## 17. Add integral control
+**Date:** 2026-10-22
+
+**Prompt:**
+> Now can you add integral control
+
+**Answer:**
+Added an I term to the ISR controller, making it a full PID: `u = Kp*error − Kd*gyro[1] + i_term`, clamped to 0..`DUTY_MAX`. Every 1 ms sample the controller accumulates `Ki*error` (rather than the raw error), so the sum is already in duty counts. That means it can't overflow 15.16 fixed point, and changing Ki doesn't make the output jump. Anti-windup: `i_term` is capped at `i_max` (default 3000; the lecture says to set it a little above the duty that holds the arm at the target) and floored at 0, because the fan can't pull down. The integrator resets to 0 whenever closed loop is off (including after `p` or `c 0`). New serial commands: `i` sets Ki (default 0 = off, suggested start ~0.03) and `m` sets `i_max` (0–`DUTY_MAX`). Added a second VGA readout line showing Ki, I max and the live I term. Builds cleanly.
+
+**Code (imu_demo.c):**
+```c
+// Globals
+volatile fix15 Ki = int2fix15(0) ;
+volatile int i_max = 3000 ;
+volatile fix15 i_term = 0 ;
+
+// ISR controller
+i_term += multfix15(Ki, angle_error) ;
+if (i_term > int2fix15(i_max)) i_term = int2fix15(i_max) ;
+if (i_term < 0) i_term = 0 ;
+int u = (int)((p_term - d_term) >> 32) + fix2int15(i_term) ;
+...
+else {
+    i_term = 0 ;   // controller off -> clear integrator
+}
+
+// Draw thread
+setCursor(85, 57) ;
+sprintf(screentext, "Ki: %7.4f  I max: %4d  I term: %6.1f",
+    fix2float15(Ki), i_max, fix2float15(i_term)) ;
+writeString(screentext) ;
+
+// Serial thread
+else if (classifier=='i') { /* read float -> Ki (0..100) */ }
+else if (classifier=='m') { /* read int -> i_max (0..DUTY_MAX) */ }
+```
+
+---
+
+## 18. Tuning PID for fast response
+**Date:** 2026-10-22
+
+**Prompt:**
+> If we want the arm to be very fast response to angle changes, how should we tune the pid parameters
+
+**Answer:**
+Speed comes from Kp, and Kd is what lets Kp go high without bouncing. Aim for slight overshoot (about 5–10%), which settles faster than a fully damped response. Procedure, using step tests (e.g. target 0 → 30°): raise Kp until it overshoots, raise Kd until the overshoot is damped, and repeat. Stop when either (a) the duty slams between 0 and `DUTY_MAX` during a step, which means the actuator is saturated and more gain won't help, or (b) the fan chatters at rest, which means Kd is amplifying gyro noise (a low-pass filter on gyro[1] would help). Add Ki last and keep it small. I is slow and winds up during large steps, which causes overshoot, so keep `i_max` tight (holding duty + margin). Physical limits: the rise is limited by `DUTY_MAX` (4500) and the fall by gravity, because the fan can't pull down, so the response is asymmetric. Options for more speed: feedforward of the holding duty, so P doesn't have to do that job; integrating only when the error is small (conditional integration); raising `DUTY_MAX`. Use `t` to slow the plot scroll and see the step response.
+
+**Code:** none.
+
+---
