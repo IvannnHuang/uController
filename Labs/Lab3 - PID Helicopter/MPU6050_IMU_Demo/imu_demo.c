@@ -21,6 +21,7 @@
  *  - 3.3v ---> MPU6050 VCC
  *  - RP2040 GND ---> MPU6050 GND
  *  - GPIO 4 ---> PWM_OUT
+ *  - GPIO 15 ---> pushbutton ---> GND (internal pull-up)
  */
 
 
@@ -57,8 +58,8 @@
 #define ACCEL_SCALE 120.0
 
 // Angle plot range (degrees)
-#define ANGLE_MIN 0
-#define ANGLE_RANGE 180
+#define ANGLE_MIN -90.
+#define ANGLE_RANGE 180.  // (+/- 90)
 #define RAD2DEG 57.2957795f
 
 // Place the plots
@@ -113,11 +114,23 @@ volatile int threshold = 10 ;
 // semaphore
 static struct pt_sem vga_semaphore ;
 
+// Angle player button
+#define BUTTON_PIN 15
+
+// ===== ADDED: button angle sequence =====
+// Hold button: target -90, fan off. Release: closed loop, target 0 -> 30 (t=5s) -> -30 (t=10s) -> 0 (t=15s)
+#define DEBOUNCE_MS 20                          // button must be stable this long to count
+int btn_held = 0 ;                              // debounced button state (1 = held)
+int btn_count = 0 ;                             // ms the raw reading has disagreed with btn_held
+int seq_active = 0 ;                            // 1 = running the timed angle sequence
+int seq_ms = 0 ;                                // ms since the button was released
+// ===== END ADDED =====
+
 // Some paramters for PWM
 #define WRAPVAL 6000
 #define CLKDIV  25.0
 // ADDED: max allowed fan duty cycle (closed loop and manual 'p'), below WRAPVAL
-#define DUTY_MAX 4500
+#define DUTY_MAX 6000
 // GPIO we're using for PWM
 #define PWM_OUT 4
 uint slice_num ;
@@ -138,7 +151,7 @@ volatile fix15 Kd = int2fix15(0) ;              // gain (duty counts per deg/s, 
 
 // ===== ADDED: integral control =====
 volatile fix15 Ki = int2fix15(0) ;              // gain (duty counts per deg, per 1 ms sample, 15.16), 0 = off
-volatile int i_max = 3000 ;                     // anti-windup cap on the I term (duty counts)
+volatile int i_max = 10000 ;                     // anti-windup cap on the I term (duty counts)
 volatile fix15 i_term = 0 ;                     // accumulated Ki*error (duty counts, 15.16)
 // ===== END ADDED =====
 
@@ -175,10 +188,10 @@ void drawAxes() {
     sprintf(screentext, "0") ;
     setCursor(50, 150) ;
     writeString(screentext) ;
-    sprintf(screentext, "+250") ;
+    sprintf(screentext, "+90") ;
     setCursor(45, 75) ;
     writeString(screentext) ;
-    sprintf(screentext, "-250") ;
+    sprintf(screentext, "-90") ;
     setCursor(45, 225) ;
     writeString(screentext) ;
 }
@@ -216,6 +229,45 @@ void on_pwm_wrap() {
     // Complementary angle (degrees - 15.16 fixed point)
     // gyro and accel share the same sign convention so + instead between (comp ang + gyro ang)
     complementary_angle = multfix15(complementary_angle + gyro_angle_delta, zeropt999) + multfix15(accel_angle, zeropt001);
+
+    // ===== ADDED: button angle sequence (ISR runs at ~1 kHz, so one call = 1 ms) =====
+    // Button is active low (pull-up). Debounce: accept a new state only after it holds DEBOUNCE_MS.
+    int pressed = !gpio_get(BUTTON_PIN) ;
+    if (pressed != btn_held) {
+        if (++btn_count >= DEBOUNCE_MS) {
+            printf("Button %s\n", pressed ? "pressed" : "released");
+            btn_held = pressed ;
+            btn_count = 0 ;
+            // Released: start the sequence under closed loop control
+            if (!btn_held) {
+                seq_active = 1 ;
+                seq_ms = 0 ;
+                closed_loop = 1 ;
+            }
+        }
+    }
+    else {
+        btn_count = 0 ;
+    }
+    if (btn_held) {
+        // Held: arm rests at -90, fan off (closed_loop = 0 also clears the I term below)
+        closed_loop = 0 ;
+        control = 0 ;
+        desired_angle = int2fix15(-90) ;
+        seq_active = 0 ;
+    }
+    else if (seq_active) {
+        // Only write the target at each step so serial 'a' can still override in between
+        if      (seq_ms == 0)     desired_angle = int2fix15(0) ;
+        else if (seq_ms == 5000)  desired_angle = int2fix15(30) ;
+        else if (seq_ms == 10000) desired_angle = int2fix15(-30) ;
+        else if (seq_ms == 15000) {
+            desired_angle = int2fix15(0) ;
+            seq_active = 0 ;   // sequence done, stay at 0
+        }
+        seq_ms++ ;
+    }
+    // ===== END ADDED =====
 
     // ===== ADDED: proportional control =====
     // ===== CHANGED: now PID control (derivative and integral terms added below) =====
@@ -308,7 +360,7 @@ static PT_THREAD (protothread_draw(struct pt *pt))
     while(1) {
         // Wait for a buffer swap
         PT_YIELD_UNTIL(pt, draw_start_signal()) ;
-        gpio_put(15, !gpio_get(15)) ;
+        // REMOVED: gpio_put(15, ...) debug toggle, GPIO 15 is now the button
         
         // Clear the buffer, draw the axes
         clearLowFrame(0, BLACK) ;
@@ -327,7 +379,7 @@ static PT_THREAD (protothread_draw(struct pt *pt))
             // (gyro x/y/z and accel-only angle traces removed; target line drawn below)
             // Angles rotate about +y axis within the range ~[-90, 90] so 0 degree is when the IMU is parallel to the floor
             drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
-                (int)(NEW_RANGE*((float)((fix2float15(comp_angle_buf[start]))-OLD_MIN)/OLD_RANGE))), YELLOW) ;
+                (int)(NEW_RANGE*((float)((fix2float15(comp_angle_buf[start]))-ANGLE_MIN)/ANGLE_RANGE))), YELLOW) ;
             // ===== END CHANGED =====
 
             start = ((start+1)==PLOT_WIDTH) ? 0 : (start+1) ;
@@ -335,7 +387,7 @@ static PT_THREAD (protothread_draw(struct pt *pt))
 
         // ===== ADDED: target angle line on top plot =====
         drawHLine(LEFT_EDGE, (TOP_PLOT_BOTTOM -
-            (int)(NEW_RANGE*((float)((fix2float15(desired_angle))-OLD_MIN)/OLD_RANGE))), PLOT_WIDTH, LIGHT_BLUE) ;
+            (int)(NEW_RANGE*((float)((fix2float15(desired_angle))-ANGLE_MIN)/ANGLE_RANGE))), PLOT_WIDTH, LIGHT_BLUE) ;
         // ===== END ADDED =====
 
         // ===== ADDED: numeric readout of angle estimates =====
@@ -413,11 +465,11 @@ static PT_THREAD (protothread_serial(struct pt *pt))
         // ===== ADDED: controller commands =====
         // 'a' = target angle, 'k' = Kp, 'd' = Kd, 'i' = Ki, 'm' = I term cap, 'c' = closed loop on (1) / off (0)
         else if (classifier=='a') {
-            sprintf(pt_serial_out_buffer, "target angle (-180 to 180 deg): ");
+            sprintf(pt_serial_out_buffer, "target angle (-90 to 90 deg): ");
             serial_write ;
             serial_read ;
             sscanf(pt_serial_in_buffer,"%f", &float_in) ;
-            if (float_in >= -180.0f && float_in <= 180.0f) {
+            if (float_in >= -90.0f && float_in <= 90.0f) {
                 desired_angle = float2fix15(float_in) ;
             }
         }
@@ -449,6 +501,9 @@ static PT_THREAD (protothread_serial(struct pt *pt))
             sscanf(pt_serial_in_buffer,"%f", &float_in) ;
             if (float_in >= 0.0f && float_in <= 100.0f) {
                 Ki = float2fix15(float_in) ;
+                if(float_in == 0.0f) { // reset the integral term if Ki is set to 0
+                    i_term = 0 ;
+                }
             }
         }
         else if (classifier=='m') {
@@ -481,9 +536,7 @@ static PT_THREAD (protothread_serial(struct pt *pt))
 
 // Entry point for core 1
 void core1_entry() {
-    gpio_init(15) ;
-    gpio_set_dir(15, GPIO_OUT) ;
-    gpio_put(15, 0) ;
+    // REMOVED: GPIO 15 debug output init, GPIO 15 is now the button
     pt_add_thread(protothread_draw) ;
     pt_schedule_start ;
 }
@@ -538,6 +591,11 @@ int main() {
     ////////////////////////////////////////////////////////////////////////
     ///////////////////////// PWM CONFIGURATION ////////////////////////////
     ////////////////////////////////////////////////////////////////////////
+    // Button Pin Initialization (before the ISR starts reading it)
+    gpio_init(BUTTON_PIN) ;
+    gpio_set_dir(BUTTON_PIN, GPIO_IN) ;
+    gpio_pull_up(BUTTON_PIN) ;
+
     // Tell GPIO's 4,5 that they allocated to the PWM
     gpio_set_function(5, GPIO_FUNC_PWM);
     gpio_set_function(PWM_OUT, GPIO_FUNC_PWM);  // CHANGED: was hardcoded 4, now uses PWM_OUT
@@ -575,6 +633,7 @@ int main() {
     gpio_init(14) ;
     gpio_set_dir(14, GPIO_OUT) ;
     gpio_put(14, 0) ;
+
     pt_add_thread(protothread_serial) ;
     pt_schedule_start ;
 
