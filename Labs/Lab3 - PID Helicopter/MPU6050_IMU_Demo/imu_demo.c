@@ -131,6 +131,9 @@ int seq_ms = 0 ;                                // ms since the button was relea
 #define CLKDIV  25.0
 // ADDED: max allowed fan duty cycle (closed loop and manual 'p'), below WRAPVAL
 #define DUTY_MAX 6000
+// ADDED: max duty increase per 1 ms sample in closed loop (inrush/overcurrent protection).
+// 20 counts/ms -> 0 to DUTY_MAX in 300 ms. Decreases are not limited.
+#define DUTY_SLEW 20
 // GPIO we're using for PWM
 #define PWM_OUT 4
 uint slice_num ;
@@ -141,7 +144,7 @@ volatile int old_control ;
 // ===== ADDED: proportional controller =====
 volatile int closed_loop = 0 ;                  // 0 = manual duty ('p'), 1 = P control
 volatile fix15 desired_angle = 0 ;              // target angle (degrees, 15.16)
-volatile fix15 Kp = int2fix15(100) ;            // gain (duty counts per degree, 15.16)
+volatile fix15 Kp = int2fix15(0) ;            // gain (duty counts per degree, 15.16)
 fix15 angle_error ;                             // desired - measured (degrees, 15.16)
 // ===== END ADDED =====
 
@@ -287,16 +290,26 @@ void on_pwm_wrap() {
         // so the sum is already in duty counts and can't overflow 15.16, and changing Ki
         // doesn't make the output jump. At steady state P and D are ~0, so the I term
         // alone supplies the duty that holds the arm up against gravity.
-        i_term += multfix15(Ki, angle_error) ;
+        fix15 i_step = multfix15(Ki, angle_error) ;
+        int pd = (int)((p_term - d_term) >> 32) ;
+        // ===== ADDED: overcurrent protection =====
+        // Highest duty allowed this sample: DUTY_MAX, and at most DUTY_SLEW above last sample,
+        // so a big setpoint jump ramps the motor up instead of stepping it (limits inrush current)
+        int u_limit = control + DUTY_SLEW ;
+        if (u_limit > DUTY_MAX) u_limit = DUTY_MAX ;
+        // Conditional integration: don't grow the I term while the output is already pinned at
+        // the limit, otherwise it winds up during the ramp/stall and overshoots afterwards
+        if (!(i_step > 0 && pd + fix2int15(i_term) >= u_limit)) i_term += i_step ;
+        // ===== END ADDED =====
         // Anti-windup: cap at i_max (set it a bit above the duty that holds the arm at the
         // target). Floor at 0 because the fan can't pull down, so negative I only adds lag.
         if (i_term > int2fix15(i_max)) i_term = int2fix15(i_max) ;
         if (i_term < 0) i_term = 0 ;
         // ===== END ADDED =====
-        int u = (int)((p_term - d_term) >> 32) + fix2int15(i_term) ;   // CHANGED: was Kp * error only, then P - D
+        int u = pd + fix2int15(i_term) ;   // CHANGED: was Kp * error only, then P - D
         // The fan can only push one way, so clamp to the valid duty range
         if (u < 0) u = 0 ;
-        if (u > DUTY_MAX) u = DUTY_MAX ;   // CHANGED: was WRAPVAL (6000)
+        if (u > u_limit) u = u_limit ;   // CHANGED: was DUTY_MAX (and WRAPVAL before that), now also slew limited
         control = u ;
     }
     // ===== ADDED: clear the integrator whenever the controller is off =====
