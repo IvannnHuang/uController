@@ -1,0 +1,923 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Session Log</title><style>body{font-family:Arial,sans-serif;font-size:11pt}pre{font-family:"Courier New",monospace;font-size:9pt;background:#f3f3f3;padding:8px;white-space:pre-wrap}code{font-family:"Courier New",monospace}blockquote{border-left:3px solid #999;margin-left:0;padding-left:10px;color:#444}</style></head><body><h1>Claude Code Session Log — Rotary Encoder + Galton Board</h1>
+<p>A record of the prompts given to Claude Code in this session, a summary of
+what was produced in response, and the code that came with each response,
+for <code>animation.c</code> in this lab.</p>
+<blockquote>
+<p>Note: several code blocks below were later edited, replaced, or reverted
+by later prompts in this same session (e.g. the sprintf-free version in
+#8 was reverted in #9; the simple single-edge ISR in #5 was replaced by
+the full state-machine ISR in #10). Those blocks are reproduced here as
+they were <em>at that point in the conversation</em>, not necessarily as they
+appear in <code>animation.c</code> today. Blocks marked &quot;(current)&quot; were pulled
+directly from the file as it stands right now.</p>
+</blockquote>
+<hr>
+<h2>1. Initial rotary encoder request</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>Read the rotary encoder page and write a software interface to the rotary
+encoder. You should display a number on the VGA display that increments
+when you rotate the encoder clockwise, and decrements when you rotate it
+counterclockwise. do not acutally impekenmt the code in the fiel yet. see
+where we hae started with edit fo draw Textvga 347</p>
+</blockquote>
+<p><strong>Response:</strong> Read <code>vanhunteradams.com</code>&#39;s Rotary Encoder page. Explained the
+encoder hardware (pins A/B/COM, pull-ups needed, states float high/short low),
+the 4-state quadrature sequence for clockwise vs. counterclockwise rotation,
+and designed a lookup-table-based ISR that only counts a full detent click
+(cancels out contact bounce). Pointed out that the existing
+<code>drawTextVGA437(50, 50, &quot;hi&quot;, char color, char bakgnd_color)</code> call at the
+time didn&#39;t compile. No file edits made yet, per instructions — code given
+as reference only.</p>
+<pre><code class="language-c">#define ENC_A 12
+#define ENC_B 11
+
+volatile int encoder_count = 0;     // written in ISR, read by anim thread
+static uint8_t enc_prev = 3;        // start at detent (both high)
+static int8_t  enc_accum = 0;
+
+// index = (prev&lt;&lt;2)|curr ; +1 = CW step, -1 = CCW step, 0 = none/invalid
+static const int8_t enc_table[16] = {
+/* prev=0 */  0, -1, +1,  0,
+/* prev=1 */ +1,  0,  0, -1,
+/* prev=2 */ -1,  0,  0, +1,
+/* prev=3 */  0, +1, -1,  0
+};
+
+void encoder_isr(uint gpio, uint32_t events) {
+  uint8_t curr = (gpio_get(ENC_A) &lt;&lt; 1) | gpio_get(ENC_B);
+  enc_accum += enc_table[(enc_prev &lt;&lt; 2) | curr];
+  enc_prev = curr;
+  if (curr == 3) {                  // back at detent
+    if (enc_accum &gt;= 4)  encoder_count++;
+    else if (enc_accum &lt;= -4) encoder_count--;
+    enc_accum = 0;
+  }
+}
+
+// in main(), before multicore_launch_core1:
+gpio_init(ENC_A); gpio_set_dir(ENC_A, GPIO_IN); gpio_pull_up(ENC_A);
+gpio_init(ENC_B); gpio_set_dir(ENC_B, GPIO_IN); gpio_pull_up(ENC_B);
+gpio_set_irq_enabled_with_callback(ENC_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &amp;encoder_isr);
+gpio_set_irq_enabled(ENC_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+</code></pre>
+<pre><code class="language-c">static char enc_str[32];
+sprintf(enc_str, &quot;Count: %d&quot;, encoder_count);
+drawTextVGA437(50, 50, enc_str, WHITE, BLACK);
+</code></pre>
+<hr>
+<h2>2. Clarifying the state encoding</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>are you sure its static 8 int where is the 3 coming from?</p>
+</blockquote>
+<p><strong>Response:</strong> Explained <code>uint8_t</code> vs. <code>int</code>, why <code>static</code> is needed (the ISR
+needs the previous state to persist between calls), and walked through why
+the rest state is <code>3</code> — both A and B read high (<code>1,1</code>) when neither is
+touching a contact pad, assuming pull-ups are enabled, giving <code>(1&lt;&lt;1)|1 = 3</code>.
+Flagged that this assumes the encoder boots at a detent, and suggested
+reading the pins once at startup instead of hard-coding <code>3</code>:</p>
+<pre><code class="language-c">enc_prev = (gpio_get(ENC_A) &lt;&lt; 1) | gpio_get(ENC_B);
+</code></pre>
+<p>No other code given this turn.</p>
+<hr>
+<h2>3. First code drop</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>ok provide me jsut the code to add in</p>
+</blockquote>
+<p><strong>Response:</strong> Provided the full code to paste in by hand (not yet applied
+to the file directly — given as text for the user to add themselves).</p>
+<p>Globals / ISR, to go with the other globals:</p>
+<pre><code class="language-c">// === Rotary encoder ===
+#define ENC_A 12
+#define ENC_B 11
+
+volatile int encoder_count = 0;   // written in ISR, read by anim thread
+static uint8_t enc_prev = 3;      // previous (A&lt;&lt;1)|B state
+static int8_t  enc_accum = 0;     // quarter-steps since last detent
+
+// index = (prev&lt;&lt;2)|curr ; +1 = CW step, -1 = CCW step, 0 = none/invalid
+static const int8_t enc_table[16] = {
+/* prev=0 */  0, -1, +1,  0,
+/* prev=1 */ +1,  0,  0, -1,
+/* prev=2 */ -1,  0,  0, +1,
+/* prev=3 */  0, +1, -1,  0
+};
+
+// GPIO interrupt: runs on any edge of A or B
+void encoder_isr(uint gpio, uint32_t events) {
+  uint8_t curr = (gpio_get(ENC_A) &lt;&lt; 1) | gpio_get(ENC_B);
+  enc_accum += enc_table[(enc_prev &lt;&lt; 2) | curr];
+  enc_prev = curr;
+  if (curr == 3) {                          // back at detent
+    if (enc_accum &gt;= 4)       encoder_count++;
+    else if (enc_accum &lt;= -4) encoder_count--;
+    enc_accum = 0;
+  }
+}
+</code></pre>
+<p>Replacing the broken <code>drawTextVGA437</code> line in <code>protothread_anim</code>:</p>
+<pre><code class="language-c">      // draw rotary text
+      static char enc_str[32];
+      sprintf(enc_str, &quot;Count: %d&quot;, encoder_count);
+      drawTextVGA437(50, 50, enc_str, WHITE, BLACK);
+</code></pre>
+<p>In <code>main()</code>, after <code>initVGA()</code> and before <code>multicore_launch_core1</code>:</p>
+<pre><code class="language-c">  // initialize rotary encoder
+  gpio_init(ENC_A); gpio_set_dir(ENC_A, GPIO_IN); gpio_pull_up(ENC_A);
+  gpio_init(ENC_B); gpio_set_dir(ENC_B, GPIO_IN); gpio_pull_up(ENC_B);
+  enc_prev = (gpio_get(ENC_A) &lt;&lt; 1) | gpio_get(ENC_B);
+  gpio_set_irq_enabled_with_callback(ENC_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &amp;encoder_isr);
+  gpio_set_irq_enabled(ENC_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+</code></pre>
+<hr>
+<h2>4. Simplify / explain like I&#39;m 5</h2>
+<p><strong>Prompt (after a model switch to Sonnet 5):</strong></p>
+<blockquote>
+<p>is there some way to make it simpler? wht does 0 through 3 mean? explain to
+me like 5 year old</p>
+</blockquote>
+<p><strong>Response:</strong> Explained the 0–3 state numbers as just &quot;nicknames&quot; for the
+four combinations of two on/off switches (A and B). Offered a simpler
+single-edge-triggered ISR (interrupt on A only, compare to B to get
+direction) as an easier starting point, with the trade-off that it&#39;s more
+sensitive to bounce than the 4-state table version.</p>
+<pre><code class="language-c">#define ENC_A 12
+#define ENC_B 11
+
+volatile int encoder_count = 0;
+
+// Runs only when A changes.
+void encoder_isr(uint gpio, uint32_t events) {
+  if (gpio_get(ENC_A) == gpio_get(ENC_B)) {
+    encoder_count++;      // clockwise
+  } else {
+    encoder_count--;      // counterclockwise
+  }
+}
+</code></pre>
+<pre><code class="language-c">  gpio_init(ENC_A); gpio_set_dir(ENC_A, GPIO_IN); gpio_pull_up(ENC_A);
+  gpio_init(ENC_B); gpio_set_dir(ENC_B, GPIO_IN); gpio_pull_up(ENC_B);
+  gpio_set_irq_enabled_with_callback(ENC_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &amp;encoder_isr);
+</code></pre>
+<hr>
+<h2>5. &quot;Drop in the code&quot;</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>drop in the code</p>
+</blockquote>
+<p><strong>Response:</strong> First real edits to <code>animation.c</code> (the user had already
+hand-added a broken <code>void rot_ISR()</code> with no body and incomplete GPIO
+setup; these edits fixed and completed it):</p>
+<p>Fixed ISR + globals (replacing the broken block):</p>
+<pre><code class="language-c">// rotary definitions
+#define ROT_A 12
+#define ROT_B 11
+volatile int rot_counter = 0;
+
+// uS per frame
+#define FRAME_RATE 33000
+
+// Fires on every edge of ROT_A. Peek at ROT_B to tell direction.
+void rot_ISR(uint gpio, uint32_t events)
+{
+  if (gpio_get(ROT_A) == gpio_get(ROT_B)) {
+    rot_counter++ ;   // clockwise
+  } else {
+    rot_counter-- ;   // counterclockwise
+  }
+}
+</code></pre>
+<p>Added to the GPIO init block in <code>main()</code> (pull-ups and interrupt hookup
+had been missing):</p>
+<pre><code class="language-c">  gpio_pull_up(ROT_A);
+  gpio_pull_up(ROT_B);
+  gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &amp;rot_ISR);
+</code></pre>
+<p>Replaced the static <code>&quot;hi&quot;</code> text in <code>protothread_anim</code> with a live counter:</p>
+<pre><code class="language-c">      static char rot_str[32] ;
+      sprintf(rot_str, &quot;Count: %d&quot;, rot_counter) ;
+      drawTextVGA437(50, 50, rot_str, WHITE, BLACK);
+</code></pre>
+<hr>
+<h2>6. Comment the prompts and edited sections</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>please make sure to comment the prompt used and also comment the specific
+secitosn tha tyou&#39;ve editting or impelemtned</p>
+</blockquote>
+<p><strong>Response:</strong> Added block comments quoting the originating prompt above the
+rotary encoder code, and wrapped every edited region in <code>=== ... ===</code> /
+<code>=== END ... ===</code> markers. (This is the state of the file right after this
+turn&#39;s edits, before the user&#39;s own further edits and before the v2
+quadrature rewrite in #10.)</p>
+<pre><code class="language-c">// =====================================================================
+// === ROTARY ENCODER INTERFACE (added w/ Claude Code assistance)
+// Prompt: &quot;Read the rotary encoder page and write a software interface
+// to the rotary encoder. You should display a number on the VGA display
+// that increments when you rotate the encoder clockwise, and decrements
+// when you rotate it counterclockwise.&quot;
+//
+// Approach: GPIO A/B float high via pull-ups and short low when a
+// contact pad touches them (see vanhunteradams.com Rotary_Encoder page).
+// We interrupt on every edge of A only, and read B at that instant to
+// tell which direction the disk is turning (classic 2-pin quadrature
+// direction check). rot_counter is the displayed value.
+// =====================================================================
+#define ROT_A 12
+#define ROT_B 11
+volatile int rot_counter = 0;
+
+// Fires on every edge of ROT_A. Peek at ROT_B to tell direction.
+void rot_ISR(uint gpio, uint32_t events)
+{
+  if (gpio_get(ROT_A) == gpio_get(ROT_B)) {
+    rot_counter++ ;   // clockwise
+  } else {
+    rot_counter-- ;   // counterclockwise
+  }
+}
+// === END ROTARY ENCODER ISR ===========================================
+</code></pre>
+<pre><code class="language-c">  // === ROTARY ENCODER: GPIO + interrupt setup (Claude Code assisted) ===
+  // Pull-ups needed because A/B float when not touching a contact pad.
+  // Interrupt registered on A&#39;s edges only; rot_ISR reads B for direction.
+  gpio_init(ROT_A);
+  gpio_init(ROT_B);
+  gpio_set_dir(ROT_A, GPIO_IN);
+  gpio_set_dir(ROT_B, GPIO_IN);
+  gpio_pull_up(ROT_A);
+  gpio_pull_up(ROT_B);
+  gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &amp;rot_ISR);
+  // === END ROTARY ENCODER SETUP =========================================
+</code></pre>
+<pre><code class="language-c">      // === ROTARY ENCODER: display rot_counter (Claude Code assisted) ===
+      static char rot_str[32] ;
+      sprintf(rot_str, &quot;Count: %d&quot;, rot_counter) ;
+      drawTextVGA437(50, 50, rot_str, WHITE, BLACK);
+      // === END ROTARY ENCODER DISPLAY ===================================
+</code></pre>
+<hr>
+<h2>7. Diagnosing inconsistent increments (discussion only)</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>okay now i notece that we incrmebeting or decremtn by inconsistent large
+amounts, i wan tit to be less sentiive increase or decrease only one at a
+time...? talk me thorugh how i would do this first</p>
+</blockquote>
+<p><strong>Response:</strong> Explained the root cause without editing code yet: the
+single-edge approach reacts to every edge of A, and one physical click
+already produces 2 edges on A, plus contact bounce adds more. Walked
+through the fix — tracking the full 4-state sequence with an accumulator
+that only updates the display when a complete click (±4 steps) returns to
+the rest state — and why that&#39;s naturally bounce-immune. No code given
+this turn; the fix was implemented in #10.</p>
+<hr>
+<h2>8. Printing without <code>sprintf</code></h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>can you do the printign to vga without sprit f plez</p>
+</blockquote>
+<p><strong>Response:</strong> Added a manual <code>intToStr()</code> helper (digit-by-digit
+conversion, no <code>stdio</code> formatting) and switched the display code to use it.
+(This was reverted in #9, so it no longer appears in the file.)</p>
+<pre><code class="language-c">// Convert an int to a decimal string in buf, without sprintf.
+// Handles negative numbers. buf must be large enough (12 bytes is safe
+// for any 32-bit int, sign + digits + null terminator).
+void intToStr(int n, char* buf)
+{
+  int i = 0 ;
+  int negative = (n &lt; 0) ;
+  unsigned int mag = negative ? (unsigned int)(-n) : (unsigned int)n ;
+
+  // peel off digits least-significant-first
+  do {
+    buf[i++] = (char)(&#39;0&#39; + (mag % 10)) ;
+    mag /= 10 ;
+  } while (mag &gt; 0) ;
+
+  if (negative) buf[i++] = &#39;-&#39; ;
+  buf[i] = &#39;\0&#39; ;
+
+  // reverse in place
+  for (int lo = 0, hi = i - 1 ; lo &lt; hi ; lo++, hi--) {
+    char tmp = buf[lo] ;
+    buf[lo] = buf[hi] ;
+    buf[hi] = tmp ;
+  }
+}
+</code></pre>
+<pre><code class="language-c">      // === ROTARY ENCODER: display rot_counter (Claude Code assisted) ===
+      // No sprintf -- convert manually and draw label + number separately.
+      intToStr(rot_counter, rot_str) ;
+      drawTextVGA437(50, 50, &quot;Count: &quot;, WHITE, BLACK);
+      drawTextVGA437(120, 50, rot_str, WHITE, BLACK);
+</code></pre>
+<hr>
+<h2>9. Revert back to <code>sprintf</code></h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>nvm go back to sprintf</p>
+</blockquote>
+<p><strong>Response:</strong> Reverted the display line to <code>sprintf</code> and removed the
+now-unused <code>intToStr()</code> helper entirely.</p>
+<pre><code class="language-c">      // === ROTARY ENCODER: display rot_counter (Claude Code assisted) ===
+      sprintf(rot_str, &quot;Count: %d&quot;, rot_counter) ;
+      drawTextVGA437(50, 50, rot_str, WHITE, BLACK);
+</code></pre>
+<hr>
+<h2>10. Implementing the full quadrature state machine</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>okay great,on ething i am noticing, i feel the brush a provide one
+incrment and brush b provide another incrment. it is as is one clockrwise
+rotiaton full incrmenets by 2. maybe you do have to read a then b and keep
+track of the sequenc eof events</p>
+</blockquote>
+<p><strong>Response:</strong> Replaced the single-edge ISR with a full 4-state quadrature
+detector: a <code>rot_table[16]</code> lookup keyed on <code>(prev_state&lt;&lt;2)|curr_state</code>,
+an accumulator (<code>rot_accum</code>) that only commits to <code>rot_counter</code> when the
+state returns to rest having taken a full ±4-step trip, and interrupts
+registered on both A and B (not just A). Also seeded <code>rot_prev_state</code> from
+a real pin read at boot instead of assuming rest. <strong>(current — this is
+still in the file today, aside from the user&#39;s own pin-number swap.)</strong></p>
+<pre><code class="language-c">#define ROT_A 12
+#define ROT_B 11
+volatile int rot_counter = 0;
+static volatile uint8_t rot_prev_state = 3 ; // (A&lt;&lt;1)|B ; 3 = rest (both high)
+static volatile int8_t  rot_accum = 0 ;      // steps taken since last rest
+
+// Lookup table: index = (prev_state&lt;&lt;2)|curr_state.
+// +1 = one valid step clockwise, -1 = one valid step counterclockwise,
+//  0 = no change, or a state jump that skips a step (bounce/noise) -- ignore.
+static const int8_t rot_table[16] = {
+/* prev=0(00) */  0, -1, +1,  0,
+/* prev=1(01) */ +1,  0,  0, -1,
+/* prev=2(10) */ -1,  0,  0, +1,
+/* prev=3(11) */  0, +1, -1,  0
+} ;
+
+// Fires on every edge of EITHER A or B.
+void rot_ISR(uint gpio, uint32_t events)
+{
+  uint8_t curr_state = (gpio_get(ROT_A) &lt;&lt; 1) | gpio_get(ROT_B) ;
+  rot_accum += rot_table[(rot_prev_state &lt;&lt; 2) | curr_state] ;
+  rot_prev_state = curr_state ;
+
+  if (curr_state == 3) {               // landed back at rest (a full click, or none)
+    if (rot_accum &gt;= 4)       rot_counter++ ;  // completed one CW click
+    else if (rot_accum &lt;= -4) rot_counter-- ;  // completed one CCW click
+    rot_accum = 0 ;                    // discard partial turns / bounce
+  }
+}
+</code></pre>
+<pre><code class="language-c">  // === ROTARY ENCODER: GPIO + interrupt setup (Claude Code assisted) ===
+  // Pull-ups needed because A/B float when not touching a contact pad.
+  // v2: interrupt on BOTH pins now, since rot_ISR needs to see every step
+  // of the 4-state sequence, not just A&#39;s edges.
+  gpio_init(ROT_A);
+  gpio_init(ROT_B);
+  gpio_set_dir(ROT_A, GPIO_IN);
+  gpio_set_dir(ROT_B, GPIO_IN);
+  gpio_pull_up(ROT_A);
+  gpio_pull_up(ROT_B);
+  // seed rot_prev_state with the real, current pin reading (assumes we boot
+  // at rest -- fine since the encoder detents there and holds until turned)
+  rot_prev_state = (gpio_get(ROT_A) &lt;&lt; 1) | gpio_get(ROT_B) ;
+  gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &amp;rot_ISR);
+  gpio_set_irq_enabled(ROT_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+</code></pre>
+<hr>
+<h2>11. One ball, one peg (Galton board physics)</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p><a href="https://vanhunteradams.com/Pico/Galton/Collisions.html">https://vanhunteradams.com/Pico/Galton/Collisions.html</a>
+Starting from this example, and using the pseudocode above (which comes
+from the collision physics for the digital Galton Board webpage), get one
+ball to bounce off one peg. When the ball exits the bottom of the screen,
+it should automatically drop again from the top. Use the default
+parameters provided in the image below. peg_radius = 6, gravity = 0.37,
+bounciness=0.5, ball_radisu = 4. for later peg spearations: vertical
+sepation = 19, horizontal separation = 38. but for now just want one peg.
+maybe inside of wallsAndEdges function for how we know a ball has dropped
+on to a peg. need to add gravity. a peg is a ball with zero velociity and
+infinite mass. <em>(+ the full collision-physics derivation pasted from
+Collisions.html, omitted here — it&#39;s the math derivation, not code)</em></p>
+</blockquote>
+<p><strong>Response:</strong> Fetched the actual per-frame ball-update pseudocode from the
+Galton lab page (the pasted content was the physics derivation, not the
+pseudocode). Implemented settings, <code>spawnBall()</code>, <code>updateBall()</code>, wired the
+ball/peg into core 0&#39;s animation thread, disabled the core 1 boid, and
+verified the build. <strong>This is the original version from this turn — the
+user hand-edited it before the next turn (adding substeps, a <code>v_dot_n</code>
+guard, and pointer-based signatures), so this exact code no longer appears
+in the file.</strong></p>
+<pre><code class="language-c">#define GRAVITY      float2fix15(0.37)
+#define BOUNCINESS   float2fix15(0.5)
+#define BALL_RADIUS  4
+#define PEG_RADIUS   6
+#define PEG_VERT_SEP 19   // unused until we add more pegs
+#define PEG_HORZ_SEP 38   // unused until we add more pegs
+#define SCREEN_W     640
+#define SCREEN_H     480
+
+// the single peg, centered on screen
+fix15 peg_x = int2fix15(320) ;
+fix15 peg_y = int2fix15(240) ;
+
+// the single ball
+fix15 ball_x ;
+fix15 ball_y ;
+fix15 ball_vx ;
+fix15 ball_vy ;
+int ball_last_peg = -1 ;   // index of the last peg struck (-1 = none yet)
+
+// Drop the ball from top-center with zero y-velocity and a small random
+// x-velocity in [-0.25, 0.25) so it doesn&#39;t land on the peg dead-center
+void spawnBall()
+{
+  ball_x  = int2fix15(SCREEN_W / 2) ;
+  ball_y  = int2fix15(0) ;
+  ball_vx = (fix15)((rand() &amp; 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  ball_vy = 0 ;
+  ball_last_peg = -1 ;
+}
+
+// One frame of ball physics (order matches the lab-page pseudocode)
+void updateBall()
+{
+  // Use ball&#39;s current velocity to update its position
+  ball_x = ball_x + ball_vx ;
+  ball_y = ball_y + ball_vy ;
+
+  // --- peg collision (just one peg for now, index 0) ---
+  fix15 dx = ball_x - peg_x ;
+  fix15 dy = ball_y - peg_y ;
+  fix15 hit_dist = int2fix15(BALL_RADIUS + PEG_RADIUS) ;
+
+  // Cheap box check first, so we only pay for sqrt when we&#39;re close
+  if ((absfix15(dx) &lt; hit_dist) &amp;&amp; (absfix15(dy) &lt; hit_dist)) {
+    fix15 distance = float2fix15(sqrtf(fix2float15(multfix15(dx, dx) + multfix15(dy, dy)))) ;
+
+    // Are we in collision? (distance &gt; 0 guards the divide below)
+    if ((distance &lt; hit_dist) &amp;&amp; (distance &gt; 0)) {
+      // Normal vector pointing from peg to ball
+      fix15 normal_x = divfix(dx, distance) ;
+      fix15 normal_y = divfix(dy, distance) ;
+
+      // -2 (n . v)
+      fix15 intermediate_term = -((multfix15(normal_x, ball_vx) + multfix15(normal_y, ball_vy)) &lt;&lt; 1) ;
+
+      // Teleport just outside the collision distance, along the normal
+      ball_x = peg_x + multfix15(normal_x, int2fix15(PEG_RADIUS + BALL_RADIUS + 1)) ;
+      ball_y = peg_y + multfix15(normal_y, int2fix15(PEG_RADIUS + BALL_RADIUS + 1)) ;
+
+      // Reflect velocity about the normal
+      ball_vx = ball_vx + multfix15(normal_x, intermediate_term) ;
+      ball_vy = ball_vy + multfix15(normal_y, intermediate_term) ;
+
+      // Only lose energy on the first strike of a new peg
+      if (ball_last_peg != 0) {
+        ball_vx = multfix15(BOUNCINESS, ball_vx) ;
+        ball_vy = multfix15(BOUNCINESS, ball_vy) ;
+        ball_last_peg = 0 ;
+      }
+    }
+  }
+
+  // Re-spawn at the top if the ball fell out the bottom
+  if (ball_y &gt; int2fix15(SCREEN_H)) spawnBall() ;
+
+  // Bounce off the top and sides (only if still heading outward)
+  if ((ball_y &lt; 0) &amp;&amp; (ball_vy &lt; 0)) ball_vy = -ball_vy ;
+  if (((ball_x &lt; 0) &amp;&amp; (ball_vx &lt; 0)) ||
+      ((ball_x &gt; int2fix15(SCREEN_W)) &amp;&amp; (ball_vx &gt; 0))) ball_vx = -ball_vx ;
+
+  // Apply gravity
+  ball_vy = ball_vy + GRAVITY ;
+}
+</code></pre>
+<p>Changes to <code>protothread_anim</code> (core 0):</p>
+<pre><code class="language-c">    // === GALTON BOARD: drop the first ball (Claude Code assisted) ===
+    // (replaces the original spawnBoid for boid0)
+    spawnBall() ;
+</code></pre>
+<pre><code class="language-c">      // === GALTON BOARD: update + draw ball and peg (Claude Code assisted) ===
+      // (replaces the original boid0 wallsAndEdges/fillCircle and drawArena)
+      updateBall() ;
+      fillCircle(fix2int15(peg_x), fix2int15(peg_y), PEG_RADIUS, WHITE) ;
+      fillCircle(fix2int15(ball_x), fix2int15(ball_y), BALL_RADIUS, color) ;
+      // === END GALTON BOARD DRAW ========================================
+</code></pre>
+<p>Disabling the core 1 boid in <code>protothread_anim1</code>:</p>
+<pre><code class="language-c">      // === GALTON BOARD (Claude Code assisted): core 1 boid disabled for
+      // the one-ball/one-peg checkpoint so only the Galton ball is drawn ===
+      // update boid&#39;s position and velocity
+      // wallsAndEdges(&amp;boid1_x, &amp;boid1_y, &amp;boid1_vx, &amp;boid1_vy) ;
+      // draw the boid at its new position
+      // fillCircle(fix2int15(boid1_x), fix2int15(boid1_y), 15, color);
+</code></pre>
+<hr>
+<h2>12. Fixing the build errors</h2>
+<p><strong>Prompt (pasted build output):</strong></p>
+<blockquote>
+<p>[ninja build errors: <code>COLLIDE_DIST</code> undeclared, <code>TELEPORT_DIST</code> undeclared,
+<code>playPegSound</code> implicit declaration, <code>spawnBall</code>/<code>updateBall</code> argument
+count mismatches]
+ive hadded changes just recently here, please debug</p>
+</blockquote>
+<p><strong>Response:</strong> The user had hand-edited the physics code since #11 (adding
+substep motion, a <code>v_dot_n</code> approach-direction guard, and pointer-based
+function signatures), which introduced the undefined symbols. Fixed by
+adding the missing macros/stub and aligning <code>spawnBall()</code>&#39;s signature and
+call sites with <code>updateBall()</code>&#39;s pointer-based one. Rebuilt and confirmed a
+clean build. <strong>(current)</strong></p>
+<pre><code class="language-c">// collision distances in fix15 (center-to-center)
+#define COLLIDE_DIST  int2fix15(BALL_RADIUS + PEG_RADIUS)
+#define TELEPORT_DIST int2fix15(BALL_RADIUS + PEG_RADIUS + 1)
+</code></pre>
+<pre><code class="language-c">void spawnBall(fix15* x, fix15* y, fix15* vx, fix15* vy, int* last_peg)
+{
+  *x  = int2fix15(SCREEN_W / 2) ;
+  *y  = int2fix15(0) ;
+  *vx = (fix15)((rand() &amp; 0x3FFF) - 0x2000) ;  // 0x2000 = 0.25 in fix15
+  *vy = 0 ;
+  *last_peg = -1 ;
+}
+
+// Peg-strike sound. Placeholder until the DMA sound is wired up
+// (pseudocode&#39;s dma.trigger()) -- does nothing for now.
+void playPegSound()
+{
+}
+</code></pre>
+<p>Call sites in <code>protothread_anim</code>:</p>
+<pre><code class="language-c">    spawnBall(&amp;ball_x, &amp;ball_y, &amp;ball_vx, &amp;ball_vy, &amp;ball_last_peg) ;
+</code></pre>
+<pre><code class="language-c">      updateBall(&amp;ball_x, &amp;ball_y, &amp;ball_vx, &amp;ball_vy, &amp;ball_last_peg) ;
+</code></pre>
+<hr>
+<h2>13. Fixing the double-bounce bug</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>the current code lets to double bound when the ball touch the peg and
+bound up an hit the invisible wall downward</p>
+</blockquote>
+<p><strong>Response:</strong> Diagnosed that <code>hitTop</code>/<code>hitBottom</code>/<code>hitLeft</code>/<code>hitRight</code> still
+checked against the original demo&#39;s inner box (y: 100–380, x: 100–540), not
+the real screen (0–640 × 0–480). Since the peg sits at <code>peg_y = 120</code>, a ball
+bouncing upward off the peg crossed the leftover <code>hitTop</code> line at y=100
+almost immediately, causing a second phantom bounce. Replaced all four
+checks with direct comparisons against <code>SCREEN_W</code>/<code>SCREEN_H</code>. Rebuilt and
+confirmed a clean build. <strong>(current)</strong></p>
+<pre><code class="language-c">  // Re-spawn any ball that falls thru the bottom of the SCREEN (not the
+  // old demo&#39;s inner box -- hitBottom/hitTop/hitLeft/hitRight fire at
+  // y=380/100 and x=100/540, which cut right through where a peg near
+  // the top of the screen lives, causing a second phantom bounce right
+  // after the real peg bounce)
+  if (*y &gt; int2fix15(SCREEN_H)) {
+    spawnBall(x, y, vx, vy, last_peg) ;
+    return ;
+  }
+
+  // Bounce off the screen&#39;s top/sides (only if still moving outward, so
+  // it can&#39;t get stuck oscillating exactly at the edge)
+  if ((*x &lt; 0)               &amp;&amp; (*vx &lt; 0)) *vx = -*vx ;
+  if ((*x &gt; int2fix15(SCREEN_W)) &amp;&amp; (*vx &gt; 0)) *vx = -*vx ;
+  if ((*y &lt; 0)               &amp;&amp; (*vy &lt; 0)) *vy = -*vy ;
+</code></pre>
+<hr>
+<h2>14. First version of this log</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>please make a log of my prompts and their according output form this chat
+history and write itdown as a markdown file</p>
+</blockquote>
+<p><strong>Response:</strong> Created this file with entries 1–13 above (text summaries
+only, no code attached).</p>
+<hr>
+<h2>15. Adding code snippets to the log</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>please also attach all code snippets that came with the outputs as well in
+the markdown. do not edit the code files, but please extract from the
+code i ahve right now. yes i know its not fully up to date form the repop
+thats okay we&#39;ll wrok on it</p>
+</blockquote>
+<p><strong>Response:</strong> This revision. Added every code block that was given in each
+response above — current, in-file snippets for entries still reflected in
+<code>animation.c</code> today (#10, #12, #13, and the main <code>main()</code>/display markers
+in #6), and the historical snippets as originally written for entries that
+were later replaced, reverted, or hand-edited by the user (#1, #3, #4, #5,
+#8, #9, #11). <code>animation.c</code> itself was not modified for this task.</p>
+<hr>
+<h2>16. Adding the coefficient of restitution</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>we notice that the coefficient of resitution is not included in the
+implementation, add that so the ball will lose volicity as it bounce</p>
+</blockquote>
+<p><strong>Response:</strong> Diagnosed that the existing reflection used
+<code>intermediate_term = -2*(v_dot_n)</code>, the formula for a perfectly elastic
+bounce (CR = 1), with <code>BOUNCINESS</code> bolted on afterward as a scale-down of
+the <em>entire</em> velocity vector — including the tangential/sliding component,
+which the physics says a peg strike should leave untouched. Replaced it
+with the actual coefficient-of-restitution formula from the Collisions
+page (&quot;Bouncing off a round peg, with coefficient of restitution&quot;):
+<code>dv = -(1+CR)(n.vi)n</code>, using <code>BOUNCINESS</code> as <code>CR</code> directly in the normal
+reflection. <code>playPegSound()</code> no longer does any velocity math itself.
+Rebuilt and confirmed a clean build. <strong>(current)</strong></p>
+<pre><code class="language-c">        // Only reflect if approaching; if already moving away, reflecting
+        // would flip the ball back into the peg (the wrong-direction bounce)
+        if (v_dot_n &lt; 0) {
+          // Coefficient-of-restitution bounce off a fixed peg (Collisions
+          // page, &quot;Bouncing off a round peg, with coefficient of
+          // restitution&quot;): dv = -(1+CR)(n.vi)n. CR=1 is a perfectly
+          // elastic bounce (the old -2*v_dot_n); CR&lt;1 bleeds off some of
+          // the NORMAL velocity component only -- the tangential
+          // (sliding) component is untouched, same as the physics.
+          fix15 one_plus_cr = int2fix15(1) + BOUNCINESS ;
+          fix15 intermediate_term = -multfix15(one_plus_cr, v_dot_n) ;
+          *vx = *vx + multfix15(normal_x, intermediate_term) ;
+          *vy = *vy + multfix15(normal_y, intermediate_term) ;
+
+          // Did we just strike a new peg? (sound only, for now -- the
+          // restitution above already accounts for the energy loss)
+          if (peg != *last_peg) {
+            playPegSound() ;
+            *last_peg = peg ;
+          }
+        }
+</code></pre>
+<hr>
+<h2>17. Updating this log again</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>please make a log of all of my prompts and their according outputs and
+write it down in teh SESSION_LOG.md in the same style that we have so far</p>
+</blockquote>
+<p><strong>Response:</strong> Found that this file already existed with entries 1–15 from
+earlier in the session. Appended entries #16 (the coefficient-of-restitution
+fix) and this entry, in the same Prompt/Response/code-block style, rather
+than recreating the file from scratch.</p>
+<hr>
+<h2>Codex continuation - October 7, 2026</h2>
+<p>The following entries record the prompts and responses from the available
+Codex conversation. Earlier entries retain their original historical
+attribution and code; their &quot;current&quot; labels describe the file at the time
+those entries were written, not necessarily the present implementation.</p>
+<h2>18. Resetting statistics when knob parameters change</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>can you make it so the histogram and total fallen balls resets when any parameter is changed using the knob?</p>
+</blockquote>
+<p><strong>Response:</strong> Inspected <code>animation.c</code> and confirmed this behavior was already
+implemented. Changing ball count, bounce, or gravity sets <code>stats_reset</code> only
+when the parameter actually changes. At the start of the next frame, before
+core 1 is signaled, both cores&#39; histogram bins and fallen counters are cleared.
+Switching knob modes or turning past a parameter limit does not reset the
+statistics. No code changes were made for this prompt.</p>
+<pre><code class="language-c">if (changed) stats_reset = 1 ;
+</code></pre>
+<pre><code class="language-c">if (stats_reset) {
+  stats_reset = 0 ;
+  memset(bins_core,   0, sizeof(bins_core)) ;
+  memset(fallen_core, 0, sizeof(fallen_core)) ;
+}
+</code></pre>
+<hr>
+<h2>19. Checking for zero horizontal spawn velocity</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>does this code avoid the case where a ball might spawn with 0 x velocity and stay stuck bouncing on the first peg?</p>
+</blockquote>
+<p><strong>Response:</strong> Explained that the spawn expression forces the integer velocity
+to be odd and therefore nonzero. The spawn position also has approximately
++/-0.5 pixels of horizontal jitter. This prevents zero horizontal velocity
+at spawn, but later collision damping and rounding can still reduce it to
+zero; it is not an absolute guarantee against every stuck-ball case.
+No code changes were made.</p>
+<pre><code class="language-c">fix15 x  = int2fix15(SCREEN_W / 2) + (fix15)((rand() &amp; 0x7FFF) - 0x4000) ;
+fix15 vx = vel2fix15(((rand() &amp; 0x1FF) - 0x100) | 1) ;
+</code></pre>
+<hr>
+<h2>20. Explaining the odd-velocity expression</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>what does it mean to force it odd</p>
+</blockquote>
+<p><strong>Response:</strong> Explained that bitwise OR with <code>1</code> sets the least significant
+bit, making the integer odd: <code>0</code> becomes <code>1</code>, <code>4</code> becomes <code>5</code>, <code>5</code> stays <code>5</code>,
+and <code>-2</code> becomes <code>-1</code> in the representation used here. Since zero is even,
+the result cannot be zero. The velocity integer is measured in units of
+1/1024 pixel per frame, so <code>1</code> represents a very small velocity.
+No code changes were made.</p>
+<hr>
+<h2>21. Drawing the count below each histogram bar</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>Below each histogram bar cna you write the current value of each bar?</p>
+</blockquote>
+<p><strong>Response:</strong> Added exact bin-count labels, including zeros, beneath the
+histogram. Reserved space by shortening the bars and used compact 3x5 digits
+with alternating label rows so large counts do not overlap adjacent labels.
+Counts are the sum of both cores&#39; counters. Firmware built successfully
+with <code>cmake --build build</code>; the UF2 was regenerated. Display behavior was
+not tested on hardware during this conversation.</p>
+<pre><code class="language-c">#define HIST_LABEL_Y   (SCREEN_H - 18)  // two rows of compact count labels
+#define HIST_BOTTOM    (HIST_LABEL_Y - 3)
+</code></pre>
+<p>Histogram drawing code extracted from <code>animation.c</code> when updating this log:</p>
+<pre><code class="language-c">// Compact 3x5 digits keep exact counts readable beneath the narrow bins.
+// Alternate rows so even a ten-digit count cannot overlap its neighbors.
+static void drawBinCount(int bin, int count)
+{
+  static const uint8_t digits[10][5] = {
+    {7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7},
+    {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1}, {7, 4, 7, 1, 7},
+    {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7},
+    {7, 5, 7, 1, 7}
+  } ;
+  char label[12] ;
+  int length = snprintf(label, sizeof(label), &quot;%d&quot;, count) ;
+  int width = length * 4 - 1 ;
+  int x = BIN0_CENTER_X + bin * PEG_HORZ_SEP - width / 2 ;
+  x = MIN(MAX(x, 0), SCREEN_W - width) ;
+  int y = HIST_LABEL_Y + (bin &amp; 1) * 8 ;
+  for (int i = 0; i &lt; length; i++) {
+    int digit = label[i] - &#39;0&#39; ;
+    for (int row = 0; row &lt; 5; row++) {
+      for (int col = 0; col &lt; 3; col++) {
+        if (digits[digit][row] &amp; (1u &lt;&lt; (2 - col))) {
+          drawPixel(x + i * 4 + col, y + row, WHITE) ;
+        }
+      }
+    }
+  }
+}
+
+// Draw the histogram under the board, scaled so the fullest bin is HIST_H tall
+void drawHistogram()
+{
+  int bins[NUM_BINS] ;                 // [OPT 2] sum of both cores&#39; counts
+  int max_count = 0 ;
+  for (int k = 0; k &lt; NUM_BINS; k++) {
+    bins[k] = bins_core[0][k] + bins_core[1][k] ;
+    if (bins[k] &gt; max_count) max_count = bins[k] ;
+  }
+  for (int k = 0; k &lt; NUM_BINS; k++) drawBinCount(k, bins[k]) ;
+  if (max_count == 0) return ;   // zero labels remain visible after a reset
+
+  for (int k = 0; k &lt; NUM_BINS; k++) {
+    int h = bins[k] * HIST_H / max_count ;
+    if (h == 0) continue ;
+    // bar centered on its gap, clipped to the screen at the two outer bins
+    int left  = BIN0_CENTER_X + k * PEG_HORZ_SEP - BAR_W / 2 ;
+    int right = left + BAR_W ;
+    if (left &lt; 0) left = 0 ;
+    if (right &gt; SCREEN_W) right = SCREEN_W ;
+    fillRect(left, HIST_BOTTOM - h + 1, right - left, h, GREEN) ;
+  }
+}
+</code></pre>
+<hr>
+<h2>22. Hiding balls below the peg board</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>can you stop drawing the balls when it reaches the peg board bottom so they dont cover the historgram</p>
+</blockquote>
+<p><strong>Response:</strong> Changed <code>updateAndDrawBall()</code> to draw a ball only while its
+center is at or above <code>BIN_LINE_Y</code>. Balls below the board continue updating,
+retain their histogram counting behavior, and respawn normally after
+crossing the bottom of the screen. Both cores use this shared helper.
+Firmware built successfully with <code>cmake --build build</code>; the UF2 was
+regenerated. Display behavior was not tested on hardware.</p>
+<pre><code class="language-c">static inline void updateAndDrawBall(ball_t* b)
+{
+  updateBall(b) ;
+  // Hide balls once they leave the peg board so they cannot cover the histogram.
+  // Physics continues below the board until the normal bottom-of-screen respawn.
+  if (BALL_POS(b-&gt;ym) &lt;= BIN_LINE_Y) {
+    drawBall(fix2int15(BALL_POS(b-&gt;xm)), fix2int15(BALL_POS(b-&gt;ym)), color) ;
+  }
+}
+</code></pre>
+<hr>
+<h2>23. Saving the histogram-label prompt</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>can you add the drawing the numbers under the histogram prompt to a markdown file?</p>
+</blockquote>
+<p><strong>Response:</strong> Created <code>histogram_numbers_prompt.md</code> in the project folder
+with a spelling-corrected version of the request. No firmware changes were
+made for this prompt.</p>
+<pre><code class="language-markdown"># Histogram count labels prompt
+
+Below each histogram bar, can you write the current value of each bar?
+</code></pre>
+<hr>
+<h2>24. Calculating mean and standard deviation from histogram counts</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>how do we calculate the mean and standard deviation of the gaussian using the text of ball counts in hte histogram</p>
+</blockquote>
+<p><strong>Response:</strong> Explained how to treat each displayed bin count as a weight.
+For bins numbered <code>k = 0 ... 16</code>, let <code>n_k</code> be the displayed count:</p>
+<pre><code class="language-text">N = sum(n_k)
+mean = sum(k * n_k) / N
+standard_deviation = sqrt(sum(n_k * (k - mean)^2) / N)
+</code></pre>
+<p>These formulas give the mean and population standard deviation of the
+observed landing-bin distribution, whether or not it is perfectly Gaussian.
+Use counts rather than the scaled bar heights, and do not calculate when
+<code>N = 0</code>. For counts <code>10, 20, 10</code> at bins <code>7, 8, 9</code>, the total is <code>40</code>, the
+mean is <code>8</code>, and the standard deviation is approximately <code>0.707</code> bins.</p>
+<p>Bin centers are 38 pixels apart, with bin 0 centered at x = 16:</p>
+<pre><code class="language-text">mean_x = 16 + 38 * mean
+standard_deviation_x = 38 * standard_deviation
+</code></pre>
+<p>No statistics calculation or display was added to the firmware; this prompt
+was answered with an explanation only.</p>
+<hr>
+<h2>25. Updating the AI prompt session log in Downloads</h2>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>can you go to the downloads folder and update the ai prompt session log</p>
+</blockquote>
+<p><strong>Response:</strong> Located <code>C:\Users\adl94\Downloads\SESSION_LOG.md</code>, read its
+existing prompt/response format, and appended entries 18-25 for this Codex
+conversation, including relevant code snippets and statistics formulas.
+Preserved earlier entries and distinguished the Codex continuation from
+the original Claude Code history. No firmware changes were made for this
+log update.</p>
+<hr>
+<h2>Claude Code continuation - October 12, 2026</h2>
+<h2>26. In-depth code commenting, authors block, and prompt provenance</h2>
+<p><em>(Prompt spelling corrected for readability. Used in the lab report to show
+that Claude was also used to comment the code in depth.)</em></p>
+<p><strong>Prompt:</strong></p>
+<blockquote>
+<p>Hello, I need help commenting code. On top of that, it might help to also
+document inside the code which prompts produced certain code snippets.
+Please also make an authors section for Amber Li, Ivan Huang, and Zarif
+Karim, October 15th, 2026.</p>
+<p>You will find prompts with their according outputs in
+<code>Lab2 - Galton/SESSION_LOG-2.md</code>. You may also make comments based on
+<code>Lab2 - Galton/Lab2_Galton_Notes.md</code>.</p>
+<p>Then, in the SESSION LOG, also note this specific prompt, showing that
+Claude was also used to comment out code in depth. This prompt will be used
+in the lab report. Make it of similar commenting convention to my Lab 1 in
+<code>Lab1 - Synthesizing Birdsong/a_Timer_Interrupt_DDS_Demo/dactest.c</code>.</p>
+<p>Here is the file to comment. It has a lot of comments already, which is
+good, so just add in what else you think we should add:
+<code>Lab2 - Galton/Animation_Demo/animation.c</code></p>
+</blockquote>
+<p><strong>Response:</strong> Read <code>animation.c</code>, both logs, and the Lab 1 <code>dactest.c</code> to
+match its style: a header block, <code>// === section ===</code> banners, and short
+trailing comments on declarations and setup calls. Only comments were added;
+no executable code was changed. Existing comments, including the <code>[OPT n]</code>
+blocks, were kept. Display and build behavior were not re-tested for this
+prompt.</p>
+<p>Added to <code>animation.c</code>:</p>
+<ul>
+<li><strong>Authors block</strong> in the file header (Amber Li, Ivan Huang, Zarif Karim,
+October 15, 2026).</li>
+<li><strong>&quot;AI-ASSISTED CODE -- PROMPT LOG&quot;</strong> in the header: maps each log entry
+(#1-#22) to the code it produced, and notes that the OPT 1-8 work is
+documented by the <code>[OPT n]</code> blocks and <code>Lab2_Galton_Notes.md</code> rather than
+by this log.</li>
+<li><strong><code>[PROMPT #n]</code> tags</strong> at the code each prompt produced, with the original
+request quoted: the rotary encoder state and ISR (#1-#10), the board
+parameters (#11), <code>COLLIDE_DIST</code>/<code>TELEPORT_DIST</code> (#12), the bottom-of-screen
+respawn (#13), <code>updateBall</code> (#11, #16), the stats reset (#18), odd-<code>vx</code>
+spawn (#19, #20), histogram labels (#21), hiding balls below the board
+(#22), and the on-screen text panel (#5, #6, #9).</li>
+<li><strong>Provenance note on #16:</strong> the coefficient-of-restitution form was later
+replaced by the <code>-2(n.v)n</code> reflection plus a <code>bounciness</code> scale, and the
+comment says so rather than implying #16 is the current code.</li>
+<li><strong>Extra explanatory comments:</strong> a trailing comment on every <code>#include</code>;
+the Q15 format and why <code>multfix15</code> widens to 64 bits; the encoder state
+numbering (0-3) and the full click sequence; the packed <code>ball_t</code> fields and
+meta macros; the digit-glyph bit layout in <code>drawBinCount</code>; why the sound
+DMA stores a pointer; and the protothread, startup, and <code>main()</code> ordering.</li>
+</ul>
+<pre><code class="language-c">// Header excerpt added to animation.c
+/**
+ * AUTHORS
+ *  - Amber Li
+ *  - Ivan Huang
+ *  - Zarif Karim
+ *  Date: October 15, 2026
+ ...
+ * AI-ASSISTED CODE -- PROMPT LOG
+ *  ... each tagged region below carries a [PROMPT #n] comment that matches
+ *  entry #n in that log.
+ */
+</code></pre>
+<pre><code class="language-c">// Example of a prompt-provenance tag (spawnBall)
+// [PROMPT #19, #20] &quot;does this code avoid the case where a ball might spawn
+// with 0 x velocity and stay stuck bouncing on the first peg?&quot; / &quot;what does it
+// mean to force it odd&quot; -&gt; OR with 1 sets the low bit, so vx can never be 0.
+</code></pre>
+</body></html>

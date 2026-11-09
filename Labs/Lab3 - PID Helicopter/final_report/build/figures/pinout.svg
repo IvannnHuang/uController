@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" font-family="Helvetica, Arial, sans-serif">
+<rect x="400" y="40" width="200" height="560" rx="10" fill="#1f6f43" stroke="#0f3d24" stroke-width="2"/>
+<rect x="480" y="26" width="40" height="26" rx="4" fill="#c0c0c0" stroke="#666"/>
+<text x="500" y="44" font-size="10" text-anchor="middle">USB</text>
+<text x="500.0" y="320.0" font-size="16" fill="#fff" text-anchor="middle" transform="rotate(-90 500.0 320.0)">Raspberry Pi Pico 2 (RP2350)</text>
+<circle cx="410" cy="60.0" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="64.0" font-size="11" fill="#fff" text-anchor="start">GP0</text>
+<text x="392" y="64.0" font-size="10" fill="#666" text-anchor="end">1</text>
+<circle cx="410" cy="87.36842105263158" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="91.36842105263158" font-size="11" fill="#fff" text-anchor="start">GP1</text>
+<text x="392" y="91.36842105263158" font-size="10" fill="#666" text-anchor="end">2</text>
+<circle cx="410" cy="114.73684210526315" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="118.73684210526315" font-size="11" fill="#fff" text-anchor="start">GND</text>
+<text x="392" y="118.73684210526315" font-size="10" fill="#666" text-anchor="end">3</text>
+<circle cx="410" cy="142.10526315789474" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="146.10526315789474" font-size="11" fill="#fff" text-anchor="start">GP2</text>
+<text x="392" y="146.10526315789474" font-size="10" fill="#666" text-anchor="end">4</text>
+<circle cx="410" cy="169.4736842105263" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="173.4736842105263" font-size="11" fill="#fff" text-anchor="start">GP3</text>
+<text x="392" y="173.4736842105263" font-size="10" fill="#666" text-anchor="end">5</text>
+<circle cx="410" cy="196.8421052631579" r="6" fill="#ea580c" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="200.8421052631579" font-size="11" fill="#fff" text-anchor="start">GP4</text>
+<text x="392" y="200.8421052631579" font-size="10" fill="#666" text-anchor="end">6</text>
+<line x1="372" y1="196.8421052631579" x2="340" y2="196.8421052631579" stroke="#ea580c" stroke-width="2"/>
+<text x="334" y="200.8421052631579" font-size="13" font-weight="600" fill="#ea580c" text-anchor="end">Motor PWM (slice 2 A) → 4N35 via 330 Ω</text>
+<circle cx="410" cy="224.21052631578948" r="6" fill="#6b7280" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="228.21052631578948" font-size="11" fill="#fff" text-anchor="start">GP5</text>
+<text x="392" y="228.21052631578948" font-size="10" fill="#666" text-anchor="end">7</text>
+<line x1="372" y1="224.21052631578948" x2="340" y2="224.21052631578948" stroke="#6b7280" stroke-width="2"/>
+<text x="334" y="228.21052631578948" font-size="13" font-weight="600" fill="#6b7280" text-anchor="end">PWM slice 2 B (level 0, unused)</text>
+<circle cx="410" cy="251.57894736842104" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="255.57894736842104" font-size="11" fill="#fff" text-anchor="start">GND</text>
+<text x="392" y="255.57894736842104" font-size="10" fill="#666" text-anchor="end">8</text>
+<circle cx="410" cy="278.9473684210526" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="282.9473684210526" font-size="11" fill="#fff" text-anchor="start">GP6</text>
+<text x="392" y="282.9473684210526" font-size="10" fill="#666" text-anchor="end">9</text>
+<circle cx="410" cy="306.3157894736842" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="310.3157894736842" font-size="11" fill="#fff" text-anchor="start">GP7</text>
+<text x="392" y="310.3157894736842" font-size="10" fill="#666" text-anchor="end">10</text>
+<circle cx="410" cy="333.6842105263158" r="6" fill="#16a34a" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="337.6842105263158" font-size="11" fill="#fff" text-anchor="start">GP8</text>
+<text x="392" y="337.6842105263158" font-size="10" fill="#666" text-anchor="end">11</text>
+<line x1="372" y1="333.6842105263158" x2="340" y2="333.6842105263158" stroke="#16a34a" stroke-width="2"/>
+<text x="334" y="337.6842105263158" font-size="13" font-weight="600" fill="#16a34a" text-anchor="end">I2C0 SDA → MPU-6050</text>
+<circle cx="410" cy="361.05263157894734" r="6" fill="#16a34a" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="365.05263157894734" font-size="11" fill="#fff" text-anchor="start">GP9</text>
+<text x="392" y="365.05263157894734" font-size="10" fill="#666" text-anchor="end">12</text>
+<line x1="372" y1="361.05263157894734" x2="340" y2="361.05263157894734" stroke="#16a34a" stroke-width="2"/>
+<text x="334" y="365.05263157894734" font-size="13" font-weight="600" fill="#16a34a" text-anchor="end">I2C0 SCL → MPU-6050</text>
+<circle cx="410" cy="388.42105263157896" r="6" fill="#b91c1c" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="392.42105263157896" font-size="11" fill="#fff" text-anchor="start">GND</text>
+<text x="392" y="392.42105263157896" font-size="10" fill="#666" text-anchor="end">13</text>
+<line x1="372" y1="388.42105263157896" x2="340" y2="388.42105263157896" stroke="#b91c1c" stroke-width="2"/>
+<text x="334" y="392.42105263157896" font-size="13" font-weight="600" fill="#b91c1c" text-anchor="end">GND → MPU-6050, VGA</text>
+<circle cx="410" cy="415.7894736842105" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="419.7894736842105" font-size="11" fill="#fff" text-anchor="start">GP10</text>
+<text x="392" y="419.7894736842105" font-size="10" fill="#666" text-anchor="end">14</text>
+<circle cx="410" cy="443.1578947368421" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="447.1578947368421" font-size="11" fill="#fff" text-anchor="start">GP11</text>
+<text x="392" y="447.1578947368421" font-size="10" fill="#666" text-anchor="end">15</text>
+<circle cx="410" cy="470.5263157894737" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="474.5263157894737" font-size="11" fill="#fff" text-anchor="start">GP12</text>
+<text x="392" y="474.5263157894737" font-size="10" fill="#666" text-anchor="end">16</text>
+<circle cx="410" cy="497.89473684210526" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="501.89473684210526" font-size="11" fill="#fff" text-anchor="start">GP13</text>
+<text x="392" y="501.89473684210526" font-size="10" fill="#666" text-anchor="end">17</text>
+<circle cx="410" cy="525.2631578947369" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="529.2631578947369" font-size="11" fill="#fff" text-anchor="start">GND</text>
+<text x="392" y="529.2631578947369" font-size="10" fill="#666" text-anchor="end">18</text>
+<circle cx="410" cy="552.6315789473684" r="6" fill="#6b7280" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="556.6315789473684" font-size="11" fill="#fff" text-anchor="start">GP14</text>
+<text x="392" y="556.6315789473684" font-size="10" fill="#666" text-anchor="end">19</text>
+<line x1="372" y1="552.6315789473684" x2="340" y2="552.6315789473684" stroke="#6b7280" stroke-width="2"/>
+<text x="334" y="556.6315789473684" font-size="13" font-weight="600" fill="#6b7280" text-anchor="end">ISR timing toggle (scope)</text>
+<circle cx="410" cy="580.0" r="6" fill="#9333ea" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="422" y="584.0" font-size="11" fill="#fff" text-anchor="start">GP15</text>
+<text x="392" y="584.0" font-size="10" fill="#666" text-anchor="end">20</text>
+<line x1="372" y1="580.0" x2="340" y2="580.0" stroke="#9333ea" stroke-width="2"/>
+<text x="334" y="584.0" font-size="13" font-weight="600" fill="#9333ea" text-anchor="end">Demo button → GND (pull-up)</text>
+<circle cx="590" cy="60.0" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="64.0" font-size="11" fill="#fff" text-anchor="end">VBUS</text>
+<text x="608" y="64.0" font-size="10" fill="#666" text-anchor="start">40</text>
+<circle cx="590" cy="87.36842105263158" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="91.36842105263158" font-size="11" fill="#fff" text-anchor="end">VSYS</text>
+<text x="608" y="91.36842105263158" font-size="10" fill="#666" text-anchor="start">39</text>
+<circle cx="590" cy="114.73684210526315" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="118.73684210526315" font-size="11" fill="#fff" text-anchor="end">GND</text>
+<text x="608" y="118.73684210526315" font-size="10" fill="#666" text-anchor="start">38</text>
+<circle cx="590" cy="142.10526315789474" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="146.10526315789474" font-size="11" fill="#fff" text-anchor="end">3V3_EN</text>
+<text x="608" y="146.10526315789474" font-size="10" fill="#666" text-anchor="start">37</text>
+<circle cx="590" cy="169.4736842105263" r="6" fill="#b91c1c" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="173.4736842105263" font-size="11" fill="#fff" text-anchor="end">3V3</text>
+<text x="608" y="173.4736842105263" font-size="10" fill="#666" text-anchor="start">36</text>
+<line x1="628" y1="169.4736842105263" x2="660" y2="169.4736842105263" stroke="#b91c1c" stroke-width="2"/>
+<text x="666" y="173.4736842105263" font-size="13" font-weight="600" fill="#b91c1c" text-anchor="start">3.3 V → MPU-6050 VCC</text>
+<circle cx="590" cy="196.8421052631579" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="200.8421052631579" font-size="11" fill="#fff" text-anchor="end">ADC_VREF</text>
+<text x="608" y="200.8421052631579" font-size="10" fill="#666" text-anchor="start">35</text>
+<circle cx="590" cy="224.21052631578948" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="228.21052631578948" font-size="11" fill="#fff" text-anchor="end">GP28</text>
+<text x="608" y="228.21052631578948" font-size="10" fill="#666" text-anchor="start">34</text>
+<circle cx="590" cy="251.57894736842104" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="255.57894736842104" font-size="11" fill="#fff" text-anchor="end">GND</text>
+<text x="608" y="255.57894736842104" font-size="10" fill="#666" text-anchor="start">33</text>
+<circle cx="590" cy="278.9473684210526" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="282.9473684210526" font-size="11" fill="#fff" text-anchor="end">GP27</text>
+<text x="608" y="282.9473684210526" font-size="10" fill="#666" text-anchor="start">32</text>
+<circle cx="590" cy="306.3157894736842" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="310.3157894736842" font-size="11" fill="#fff" text-anchor="end">GP26</text>
+<text x="608" y="310.3157894736842" font-size="10" fill="#666" text-anchor="start">31</text>
+<circle cx="590" cy="333.6842105263158" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="337.6842105263158" font-size="11" fill="#fff" text-anchor="end">RUN</text>
+<text x="608" y="337.6842105263158" font-size="10" fill="#666" text-anchor="start">30</text>
+<circle cx="590" cy="361.05263157894734" r="6" fill="#d4d4d4" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="365.05263157894734" font-size="11" fill="#fff" text-anchor="end">GP22</text>
+<text x="608" y="365.05263157894734" font-size="10" fill="#666" text-anchor="start">29</text>
+<circle cx="590" cy="388.42105263157896" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="392.42105263157896" font-size="11" fill="#fff" text-anchor="end">GND</text>
+<text x="608" y="392.42105263157896" font-size="10" fill="#666" text-anchor="start">28</text>
+<circle cx="590" cy="415.7894736842105" r="6" fill="#2563eb" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="419.7894736842105" font-size="11" fill="#fff" text-anchor="end">GP21</text>
+<text x="608" y="419.7894736842105" font-size="10" fill="#666" text-anchor="start">27</text>
+<line x1="628" y1="415.7894736842105" x2="660" y2="415.7894736842105" stroke="#2563eb" stroke-width="2"/>
+<text x="666" y="419.7894736842105" font-size="13" font-weight="600" fill="#2563eb" text-anchor="start">VGA Red (330 Ω)</text>
+<circle cx="590" cy="443.1578947368421" r="6" fill="#2563eb" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="447.1578947368421" font-size="11" fill="#fff" text-anchor="end">GP20</text>
+<text x="608" y="447.1578947368421" font-size="10" fill="#666" text-anchor="start">26</text>
+<line x1="628" y1="443.1578947368421" x2="660" y2="443.1578947368421" stroke="#2563eb" stroke-width="2"/>
+<text x="666" y="447.1578947368421" font-size="13" font-weight="600" fill="#2563eb" text-anchor="start">VGA Blue (330 Ω)</text>
+<circle cx="590" cy="470.5263157894737" r="6" fill="#2563eb" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="474.5263157894737" font-size="11" fill="#fff" text-anchor="end">GP19</text>
+<text x="608" y="474.5263157894737" font-size="10" fill="#666" text-anchor="start">25</text>
+<line x1="628" y1="470.5263157894737" x2="660" y2="470.5263157894737" stroke="#2563eb" stroke-width="2"/>
+<text x="666" y="474.5263157894737" font-size="13" font-weight="600" fill="#2563eb" text-anchor="start">VGA Green hi (330 Ω)</text>
+<circle cx="590" cy="497.89473684210526" r="6" fill="#2563eb" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="501.89473684210526" font-size="11" fill="#fff" text-anchor="end">GP18</text>
+<text x="608" y="501.89473684210526" font-size="10" fill="#666" text-anchor="start">24</text>
+<line x1="628" y1="497.89473684210526" x2="660" y2="497.89473684210526" stroke="#2563eb" stroke-width="2"/>
+<text x="666" y="501.89473684210526" font-size="13" font-weight="600" fill="#2563eb" text-anchor="start">VGA Green lo (470 Ω)</text>
+<circle cx="590" cy="525.2631578947369" r="6" fill="#111" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="529.2631578947369" font-size="11" fill="#fff" text-anchor="end">GND</text>
+<text x="608" y="529.2631578947369" font-size="10" fill="#666" text-anchor="start">23</text>
+<circle cx="590" cy="552.6315789473684" r="6" fill="#2563eb" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="556.6315789473684" font-size="11" fill="#fff" text-anchor="end">GP17</text>
+<text x="608" y="556.6315789473684" font-size="10" fill="#666" text-anchor="start">22</text>
+<line x1="628" y1="552.6315789473684" x2="660" y2="552.6315789473684" stroke="#2563eb" stroke-width="2"/>
+<text x="666" y="556.6315789473684" font-size="13" font-weight="600" fill="#2563eb" text-anchor="start">VGA Vsync</text>
+<circle cx="590" cy="580.0" r="6" fill="#2563eb" stroke="#e5e5e5" stroke-width="1.5"/>
+<text x="578" y="584.0" font-size="11" fill="#fff" text-anchor="end">GP16</text>
+<text x="608" y="584.0" font-size="10" fill="#666" text-anchor="start">21</text>
+<line x1="628" y1="580.0" x2="660" y2="580.0" stroke="#2563eb" stroke-width="2"/>
+<text x="666" y="584.0" font-size="13" font-weight="600" fill="#2563eb" text-anchor="start">VGA Hsync</text>
+<rect x="150" y="612" width="12" height="12" fill="#ea580c"/>
+<text x="168" y="622" font-size="12">Motor</text>
+<rect x="270" y="612" width="12" height="12" fill="#16a34a"/>
+<text x="288" y="622" font-size="12">IMU / I2C</text>
+<rect x="390" y="612" width="12" height="12" fill="#2563eb"/>
+<text x="408" y="622" font-size="12">VGA</text>
+<rect x="510" y="612" width="12" height="12" fill="#9333ea"/>
+<text x="528" y="622" font-size="12">Button</text>
+<rect x="630" y="612" width="12" height="12" fill="#6b7280"/>
+<text x="648" y="622" font-size="12">Debug / unused</text>
+<rect x="750" y="612" width="12" height="12" fill="#b91c1c"/>
+<text x="768" y="622" font-size="12">Power</text>
+</svg>

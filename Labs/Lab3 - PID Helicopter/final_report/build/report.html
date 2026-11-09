@@ -1,0 +1,1013 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>ECE 5730 Lab 3 Report: PID Control of a 1D Helicopter</title><style>
+@page { size: Letter; margin: 0.85in 0.8in 0.8in 0.8in;
+  @top-left { content: "Li_Huang_Karim_Thursday"; font: 9pt Helvetica, Arial, sans-serif; color: #555; }
+  @top-right { content: "ECE 5730 Lab 3: 1D Helicopter"; font: 9pt Helvetica, Arial, sans-serif; color: #555; }
+  @bottom-center { content: counter(page); font: 9pt Helvetica, Arial, sans-serif; color: #555; } }
+@page :first { @top-left { content: none; } @top-right { content: none; } @bottom-center { content: none; } }
+html { font-family: "Charter", "Georgia", serif; font-size: 10.6pt; line-height: 1.42; color: #111; }
+body { margin: 0; }
+h1, h2, h3, h4 { font-family: Helvetica, Arial, sans-serif; color: #0b2545; line-height: 1.2; }
+h1.sec { font-size: 17pt; margin: 0 0 8pt; padding-bottom: 4pt; border-bottom: 2px solid #0b2545; break-before: page; }
+h2 { font-size: 13pt; margin: 14pt 0 5pt; break-after: avoid; }
+h3 { font-size: 11pt; margin: 11pt 0 4pt; break-after: avoid; }
+h4 { font-size: 10pt; margin: 9pt 0 3pt; break-after: avoid; }
+p { margin: 0 0 6.5pt; text-align: justify; hyphens: auto; }
+ul, ol { margin: 0 0 6.5pt 0; padding-left: 18pt; }
+li { margin-bottom: 2pt; }
+code { font-family: Menlo, Consolas, monospace; font-size: 8.8pt; background: #f2f4f7; padding: 0 2px; border-radius: 2px; }
+.title { height: 9in; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.title .course { font: 600 13pt Helvetica, Arial, sans-serif; color: #555; letter-spacing: 1px; }
+.title h1 { font-size: 28pt; margin: 10pt 0 4pt; border: none; }
+.title .sub { font: 15pt Helvetica, Arial, sans-serif; color: #0b2545; margin-bottom: 26pt; }
+.title .names { font: 13pt Helvetica, Arial, sans-serif; }
+.title .date { font: 11pt Helvetica, Arial, sans-serif; color: #555; margin-top: 6pt; }
+.title img { width: 78%; margin: 26pt auto 0; border-radius: 4px; }
+.title .tag { font: 10pt Helvetica, Arial, sans-serif; color: #777; margin-top: 30pt; }
+figure { margin: 8pt 0 10pt; text-align: center; break-inside: avoid; }
+figure img { max-width: 100%; }
+figcaption { font: 9pt/1.35 Helvetica, Arial, sans-serif; color: #333; text-align: left; margin-top: 4pt; }
+.eq { text-align: center; margin: 6pt 0 8pt; break-inside: avoid; }
+.eq img { height: auto; }
+.pair { display: grid; grid-template-columns: 1.62fr 1fr; gap: 8pt; align-items: center; }
+.pair img { width: 100%; border-radius: 3px; border: 1px solid #ddd; }
+.pair .ph { max-height: 3.0in; object-fit: contain; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; align-items: center; }
+table.t { border-collapse: collapse; width: 100%; margin: 4pt 0 4pt; font: 9pt/1.3 Helvetica, Arial, sans-serif; break-inside: avoid; }
+table.t th { background: #0b2545; color: #fff; text-align: left; padding: 3pt 5pt; font-weight: 600; }
+table.t td { border-bottom: 1px solid #d7dce3; padding: 3pt 5pt; vertical-align: top; }
+table.t tr:nth-child(even) td { background: #f6f8fb; }
+.tcap { font: 9pt Helvetica, Arial, sans-serif; color: #333; margin: 0 0 10pt; }
+.callout { border-left: 3px solid #0b2545; background: #f2f5fa; padding: 5pt 9pt; margin: 6pt 0 9pt; font-size: 10pt; break-inside: avoid; }
+.callout p:last-child { margin-bottom: 0; }
+.q { border: 1px solid #c9d3e0; border-radius: 4px; padding: 7pt 10pt 4pt; margin: 0 0 10pt; break-inside: avoid-page; }
+.q h3 { margin-top: 0; }
+pre.snip { font: 7.3pt/1.4 Menlo, Consolas, monospace; background: #f6f8fb; border: 1px solid #dde3ea; padding: 6pt 8pt; white-space: pre; overflow: hidden; break-inside: avoid; }
+/* code listing */
+h3.codehead { break-before: auto; margin-top: 14pt; }
+table.code { border-collapse: collapse; width: 100%; font: 7.3pt/1.32 Menlo, Consolas, monospace; }
+table.code td { padding: 0 4pt; vertical-align: top; }
+table.code td.ln { color: #999; text-align: right; width: 22pt; user-select: none; border-right: 1px solid #ddd; }
+table.code td.src { white-space: pre-wrap; word-break: break-word; }
+table.code tr.ai td.src { background: #fff6d6; }
+table.code tr.ai td.ln { background: #ffe9a3; color: #6b5200; }
+.cm { color: #2f7d32; } .pp { color: #8a3ffc; }
+.legend { display: inline-block; width: 12pt; height: 9pt; background: #fff6d6; border: 1px solid #e0c96b; vertical-align: middle; }
+/* prompt log */
+table.log { border-collapse: collapse; width: 100%; font: 7.8pt/1.25 Helvetica, Arial, sans-serif; }
+table.log th { background: #0b2545; color: #fff; padding: 3pt 3pt; text-align: left; font-weight: 600; }
+table.log td { border-bottom: 1px solid #d7dce3; padding: 2.5pt 3pt; vertical-align: top; }
+table.log td:nth-child(n+4):nth-child(-n+8) { text-align: center; white-space: nowrap; }
+table.log tr.tot td { font-weight: 700; background: #e8edf5; }
+table.log td.note { font-size: 7.3pt; color: #333; }
+table.log code, table.t code { font-size: 0.92em; padding: 0 1px; }
+.entry { border-top: 1px solid #c9d3e0; padding-top: 4pt; margin-top: 8pt; }
+.entry h4 { margin: 2pt 0 4pt; font-size: 10pt; }
+.entry .meta { font-weight: 400; color: #666; font-size: 8.5pt; margin-left: 6pt; }
+.entry .lab { font: 600 8.3pt Helvetica, Arial, sans-serif; color: #0b2545; margin: 5pt 0 2pt; text-transform: uppercase; letter-spacing: .4px; }
+.entry blockquote { margin: 0 0 4pt; padding: 3pt 8pt; border-left: 3px solid #9aa9bd; background: #f6f8fb; font-style: italic; font-size: 9.6pt; }
+.entry p, .entry li { font-size: 9.6pt; }
+pre.logcode { font: 7.3pt/1.3 Menlo, Consolas, monospace; background: #f6f8fb; border: 1px solid #dde3ea; padding: 5pt 7pt; white-space: pre-wrap; margin: 2pt 0 4pt; }
+.toc { font: 10.5pt/1.7 Helvetica, Arial, sans-serif; columns: 2; column-gap: 24pt; }
+.toc div.sub { padding-left: 14pt; color: #444; font-size: 9.6pt; line-height: 1.5; }
+</style></head><body>
+<!-- ======================================================= TITLE -->
+<section class="title">
+  <div class="course">ECE 5730 &middot; DIGITAL SYSTEMS DESIGN USING MICROCONTROLLERS</div>
+  <h1>Lab 3 Report</h1>
+  <div class="sub">PID Control of a 1D Helicopter</div>
+  <div class="names">Amber Li &nbsp;|&nbsp; Ivan Huang &nbsp;|&nbsp; Zarif Karim</div>
+  <div class="date">Thursday lab section &middot; 11.08.2026</div>
+  <img src="figures/1d_positive_30.png" style="width:42%">
+  <div class="tag">The arm holding +30&deg; above horizontal during the demo sequence.</div>
+</section>
+
+<h1 class="sec" style="break-before: page">Contents</h1>
+<div class="toc">
+  <div>1 &nbsp;Introduction</div>
+  <div>2 &nbsp;Mathematical and Physical Background</div>
+  <div class="sub">2.1 Measuring angle &middot; 2.2 Complementary filter &middot; 2.3 Plant model &middot; 2.4 PID control &middot;
+       2.5 Practical PID problems &middot; 2.6 PWM and the motor circuit &middot; 2.7 Fixed point &middot; 2.8 I2C</div>
+  <div>3 &nbsp;Design and Testing Methods</div>
+  <div class="sub">3.1 Build order and debugging &middot; 3.2 Motor driver &middot; 3.3 PWM &middot; 3.4 IMU &middot; 3.5 Control ISR &middot;
+       3.6 Overcurrent protection and anti-windup &middot; 3.7 Demo sequence &middot; 3.8 VGA &middot; 3.9 Serial &middot; 3.10 Wiring</div>
+  <div>4 &nbsp;Documentation</div>
+  <div>5 &nbsp;Results</div>
+  <div class="sub">5.1 Final gains &middot; 5.2 Demo sequence &middot; 5.3 Settling times &middot; 5.4 Hover duty vs. angle &middot;
+       5.5 Stable range &middot; 5.6 Earlier tuning runs</div>
+  <div>6 &nbsp;Conclusion</div>
+  <div>7 &nbsp;Answers to the Lab Report Questions</div>
+  <div>8 &nbsp;Work Distribution and AI Use</div>
+  <div>References</div>
+  <div>Appendix A &nbsp;Commented Code Listing</div>
+  <div>Appendix B &nbsp;AI Prompt Log</div>
+</div>
+
+<!-- ======================================================= 1 INTRO -->
+<h1 class="sec" style="break-before: auto; margin-top: 22pt">1 &nbsp;Introduction</h1>
+<p>We built and controlled a one-degree-of-freedom "helicopter": a lever arm on a hinge with a ducted motor at the
+free end. An MPU-6050 IMU on the arm reports acceleration and angular rate over I2C. A Raspberry Pi Pico 2 (RP2350)
+fuses the two with a complementary filter to estimate the arm angle, and a PID controller running at exactly 1 kHz
+(inside the PWM-wrap interrupt) sets the motor's PWM duty cycle through an optically isolated MOSFET driver.</p>
+<p>The target angle and all three gains are set from a serial terminal and take effect on the next 1 ms cycle.
+A VGA display plots the measured angle against the target and the controller's motor command in real time.
+A pushbutton runs the demo: while it is held, the motor is off and the arm hangs at &minus;90&deg;; on release the
+target steps to 0&deg;, then +30&deg; at 5 s, &minus;30&deg; at 10 s and 0&deg; at 15 s, using whatever gains are
+loaded. With our final gains (K<sub>p</sub> = 80, K<sub>i</sub> = 0.2, K<sub>d</sub> = 12) the arm reached every
+demo angle and settled in 1&ndash;3.6 s, and stayed stable from &minus;90&deg; to about +50&deg;.</p>
+<figure data-fig="rig"><img src="figures/rig_top.png" style="width:96%">
+<figcaption><b>Figure 1.</b> The rig from above: Pico 2 and VGA adapter on the breadboard, the motor-driver PCB,
+the hinge clamped to the bench, the IMU next to the hinge and the ducted motor at the end of the arm.</figcaption></figure>
+<p><b>Angle convention.</b> Throughout the report and code, 0&deg; is the arm horizontal, &minus;90&deg; is hanging
+straight down (the handout's &minus;1.57 rad starting position) and positive angles are above horizontal. The
+course's analytical notes measure &theta; from hanging down instead; where we use their equations,
+&theta; = &phi; + 90&deg;, where &phi; is our angle.</p>
+
+<!-- ======================================================= 2 BACKGROUND -->
+<h1 class="sec">2 &nbsp;Mathematical and Physical Background</h1>
+
+<h2>2.1 &nbsp;Measuring angle: accelerometer vs. gyroscope</h2>
+<p>An accelerometer measures <i>specific force</i>, the acceleration it feels minus gravity. At rest it reads
+1 g pointing <i>up</i> (the normal force from the table), and in free fall it reads zero. When the arm is still,
+the measured vector is gravity itself, so its direction in the IMU frame gives the tilt (<a>Figure 2</a>a). The arm
+pivots about the IMU's y axis, so gravity moves between the x and z axes. Because the arm swings through
+140&deg; and more, the small-angle approximation &theta; &asymp; a<sub>x</sub>/g is useless here and we use the full
+four-quadrant arctangent:</p>
+<div class="eq"><img src="figures/eq_accel.png" style="width:1.77in"></div>
+<p>The bars mean the readings are low-passed first (Section 2.2). The accelerometer angle never drifts, because gravity
+is always there, and its noise is roughly zero-mean, so it is <i>unbiased</i> on average. But any other acceleration
+looks like a tilt: motor vibration and the arm's own swinging make it very noisy once the motor runs
+(<a>Figure 19</a>).</p>
+<p>The gyroscope measures angular rate &omega;<sub>y</sub> (&deg;/s). Integrating it gives an angle that is very smooth over
+short times and ignores vibration, but every gyro has a small bias <i>b</i>, so the integral drifts without bound
+(dead reckoning):</p>
+<div class="eq"><img src="figures/eq_gyro.png" style="width:3.05in"></div>
+<figure data-fig="angles"><img src="figures/accel_gyro_angles.png" style="width:72%">
+<figcaption><b>Figure 2.</b> (a) The accelerometer angle comes from the direction of gravity. (b) The gyro angle
+adds rate &times; &Delta;t each step. From the course complementary-filter notes, which label the axes a<sub>y</sub>
+and g<sub>z</sub>; on our board the matching axes are a<sub>z</sub> and gyro y.</figcaption></figure>
+
+<h2>2.2 &nbsp;The complementary filter</h2>
+<p>Each sensor fails where the other is good: the accelerometer is trustworthy at low frequency (long term), the
+gyro at high frequency (short term). Every 1 ms the ISR adds the gyro's angle change to the previous estimate and
+nudges the result 0.1% toward the accelerometer angle (<a>Figure 3</a>):</p>
+<div class="eq"><img src="figures/eq_comp.png" style="width:2.93in"></div>
+<figure data-fig="compblock"><img src="figures/comp_filter_block.png" style="width:86%">
+<figcaption><b>Figure 3.</b> Our complementary filter as implemented in <code>on_pwm_wrap()</code>.</figcaption></figure>
+<p><b>Why it is called complementary.</b> Taking this update in the continuous limit (&alpha; = 0.999,
+&Delta;t = 1 ms) gives a first-order low-pass on the accelerometer and a first-order high-pass on the gyro angle
+with the same time constant:</p>
+<div class="eq"><img src="figures/eq_comp_tf.png" style="width:4.58in"></div>
+<p>The two filters add to exactly 1, so the true angle passes through undistorted at every frequency; only each
+sensor's noise is filtered. Below about 1/(2&pi;&tau;) &asymp; 0.16 Hz the estimate follows the accelerometer;
+above it, the gyro. Two consequences follow directly from the transfer function:</p>
+<ul>
+<li><b>Gyro bias becomes a small constant offset instead of drift.</b> A constant bias <i>b</i> integrates to a
+ramp b/s&sup2;; through the high-pass it settles to</li>
+</ul>
+<div class="eq"><img src="figures/eq_bias.png" style="width:3.54in"></div>
+<ul style="margin-top:-4pt">
+<li style="list-style:none">An uncalibrated MPU-6050 can have a bias of a few &deg;/s, so subtracting a measured bias at start-up would be the
+next improvement (Section 6).</li>
+<li><b>The weight trades noise for bias.</b> The notes suggest 0.99/0.01; we used 0.999/0.001, which moves the
+crossover down ten times and keeps more motor vibration out, at the cost of a larger bias offset (&tau; = 1 s instead
+of 0.1 s). With the motor running, our accelerometer readout differed from the complementary angle by 2&ndash;5&deg; at any
+instant while the complementary trace stayed smooth (compare the two readouts in the screenshots of Section 5.2).</li>
+</ul>
+<p><b>Low-pass before <code>atan2</code>.</b> <code>atan2</code> is nonlinear, so zero-mean noise on a<sub>x</sub>
+and a<sub>z</sub> does not average out after it: the noisy angle comes out <i>biased</i>. We therefore filter the raw
+axes first with a first-order IIR, the digital version of an RC filter (forward-Euler discretisation, as derived on
+the course Display page):</p>
+<div class="eq"><img src="figures/eq_lpf.png" style="width:4.47in"></div>
+<div class="eq"><img src="figures/eq_lpf_fc.png" style="width:3.04in"></div>
+<p>This adds about 16 ms of lag, but only to the accelerometer path, which carries 0.1% weight. The gyro path, which
+dominates at control frequencies, has no lag. This is why we did not simply low-pass the accelerometer and skip the
+gyro: a filter slow enough to remove vibration would add tens of milliseconds of phase lag inside the control loop,
+and lag is exactly what destabilises a feedback loop (Section 2.4).</p>
+
+<h2>2.3 &nbsp;Modeling the plant</h2>
+<p>The analytical PID notes model the system as a motor (voltage to rotor speed &omega;) in series with the arm
+(&omega; to angle). <b>Motor.</b> An armature with resistance R, inductance L and back-EMF constant K, driving
+inertia J with viscous drag b, gives a two-pole low-pass:</p>
+<div class="eq"><img src="figures/eq_motor_tf.png" style="width:1.60in"></div>
+<p>Both poles are fast compared with the arm, so from the arm's point of view the motor speed follows the applied
+voltage almost instantly. The arm dominates the loop dynamics.</p>
+<figure data-fig="forces"><img src="figures/arm_forces.png" style="width:52%">
+<figcaption><b>Figure 4.</b> Thrust and gravity on the arm, with &theta; measured from hanging down. From the course
+PID notes.</figcaption></figure>
+<p><b>Arm.</b> Thrust is roughly K<sub>T</sub>&omega;&sup2;, always perpendicular to the arm; gravity acts on the motor
+mass m at distance L; hinge friction is K<sub>f</sub>&theta;&#775;. Treating the arm as a point mass at its end,
+the torque balance is</p>
+<div class="eq"><img src="figures/eq_torque.png" style="width:2.54in"></div>
+<p>Linearising about an operating point (&theta;<sub>0</sub>, &omega;<sub>0</sub>) and taking the Laplace transform:</p>
+<div class="eq"><img src="figures/eq_lin.png" style="width:2.64in"></div>
+<div class="eq"><img src="figures/eq_plant_tf.png" style="width:1.55in"></div>
+<p>This is a lightly damped resonance whose "spring constant" is (g/L) cos &theta;<sub>0</sub>. Three things follow,
+and each showed up in lab:</p>
+<ul>
+<li><b>Hanging down (&theta;<sub>0</sub> = 0)</b> the arm is a pendulum with natural frequency &radic;(g/L): 5.7 rad/s
+(0.9 Hz) for the notes' 0.3 m arm. We did not measure our arm's length precisely.</li>
+<li><b>Gravity's stiffness changes sign at horizontal</b> (&theta;<sub>0</sub> = 90&deg;, cos = 0). Below horizontal
+gravity pulls the arm back toward equilibrium; above it, gravity pushes the arm further away, so above horizontal
+only the controller keeps the arm up.</li>
+<li><b>The plant gain 2K<sub>T</sub>&omega;<sub>0</sub>/(mL) depends on the operating point.</b> At angles that need
+less thrust the motor spins slower, so each extra duty count moves the arm less. One set of fixed gains cannot be
+ideal at every angle, which is part of why the stable range is limited (Section 5.5).</li>
+</ul>
+<p><b>Thrust needed to hover.</b> Setting all derivatives to zero in the torque balance:</p>
+<div class="eq"><img src="figures/eq_hover.png" style="width:5.02in"></div>
+<p>So the ideal point-mass arm needs the most thrust at horizontal and equal thrust at &plusmn;30&deg;
+(cos 30&deg; = 0.87). On our rig the duct hangs <i>below</i> the arm (photo in <a>Figure 14</a>), so the centre of
+mass sits a distance d below the arm's centre line. The gravity torque then becomes</p>
+<div class="eq"><img src="figures/eq_com_offset.png" style="width:2.03in"></div>
+<p>which needs <i>more</i> thrust above horizontal than below it. Section 5.4 shows our measured hover duties have
+exactly this asymmetry.</p>
+
+<h2>2.4 &nbsp;PID control</h2>
+<p>Open-loop control (a lookup table from desired angle to duty cycle) fails here because the thrust needed changes
+with the supply voltage, motor temperature, air density and the arm's wiring, and nothing corrects a bump. We close
+the loop instead (<a>Figure 5</a>): measure the angle, compare it with the target, and let the controller turn the
+error into a motor command.</p>
+<figure data-fig="closedloop"><img src="figures/closed_loop.png" style="width:78%">
+<figcaption><b>Figure 5.</b> Closed-loop control. From the course PID notes.</figcaption></figure>
+<div class="eq"><img src="figures/eq_pid.png" style="width:3.58in"></div>
+<ul>
+<li><b>Proportional</b> reacts to the error right now (<a>Figure 6</a>a). Alone it leaves a steady-state error:
+holding the arm up needs a non-zero command, and P only produces one if the error is non-zero. Too much
+K<sub>p</sub> makes the arm oscillate.</li>
+<li><b>Integral</b> reacts to the accumulated error, the area under the curve (<a>Figure 6</a>b). It removes
+steady-state error: at rest P &asymp; 0 and D &asymp; 0, so the I term alone supplies the hover thrust. It adds
+90&deg; of phase lag, so K<sub>i</sub> is kept small.</li>
+<li><b>Derivative</b> reacts to how fast the error is changing. It opposes fast approaches, which adds damping.</li>
+</ul>
+<figure data-fig="piterms"><img src="figures/p_i_terms.png" style="width:58%">
+<figcaption><b>Figure 6.</b> (a) P acts on the error at this instant. (b) I acts on the area under the error curve,
+positive and negative. From the course PID notes.</figcaption></figure>
+<p><b>D from the gyro.</b> The target only changes in steps, so between steps its derivative is zero and</p>
+<div class="eq"><img src="figures/eq_dedt.png" style="width:4.18in"></div>
+<p>We feed the gyro rate straight into the D term (the approach recommended in lecture) instead of differencing the
+angle estimate. Differencing multiplies noise by its frequency, and at 1 kHz the change in angle from one sample to
+the next is smaller than the noise. Using &minus;&omega;<sub>y</sub> also means a setpoint step produces no
+derivative spike ("derivative kick"), because the gyro does not see the target.</p>
+<p><b>Discrete law as implemented.</b> Every 1 ms the ISR computes</p>
+<div class="eq"><img src="figures/eq_pid_disc.png" style="width:5.93in"></div>
+<p>where u<sub>lim</sub> is the slew-limited ceiling of Section 3.6. The integrator accumulates K<sub>i</sub>e (already in
+duty counts) rather than &Sigma;e, so changing K<sub>i</sub> never makes the output jump. In physical units our final
+gains are</p>
+<div class="eq"><img src="figures/eq_gains.png" style="width:4.51in"></div>
+<p>Written as a single transfer function, the PID controller is two zeros and an integrator. Its integral and
+derivative times show which timescales each term acts on:</p>
+<div class="eq"><img src="figures/eq_pid_zeros.png" style="width:5.45in"></div>
+<div class="eq"><img src="figures/eq_zeros_val.png" style="width:5.43in"></div>
+<p>The controller's zeros sit at about 4 rad/s (0.65 Hz), just below the arm's pendulum resonance, which is where the
+analytical notes say the derivative's phase lead is needed.</p>
+<p><b>What each gain does to stability</b> (from the Bode-plot analysis in the analytical notes). The combined plant
+is type 0 (no free integrator). Raising K<sub>p</sub> lifts the whole magnitude curve: the response gets faster and the
+steady-state error shrinks, but the gain margin falls. When the loop has a gain of 1 at &minus;180&deg; of phase the
+arm oscillates forever, which we saw at K<sub>p</sub> = 120 (<a>Figure 18</a>). K<sub>d</sub> adds up to +90&deg;
+of phase lead around the resonance, which restores margin and lets K<sub>p</sub> go higher. K<sub>i</sub> adds a free
+integrator (type 1, zero steady-state error) at the cost of 90&deg; of phase at low frequency.</p>
+
+<h2>2.5 &nbsp;Practical PID problems</h2>
+<p><a>Table 1</a> lists the failure modes the course notes warn about and what our final code does about each.
+<a>Figure 7</a> shows the worst one.</p>
+<table class="t" data-tab="problems"><tr><th style="width:44%">Problem</th><th>Our fix (final code)</th></tr>
+<tr><td>Integrator windup: error keeps accumulating while the arm is held or the motor is saturated, so the arm
+overshoots badly when released</td><td>Conditional integration: I only grows if the output is not already at its
+limit. I is floored at 0 and capped at <code>i_max</code>, and cleared whenever closed loop is off (button held,
+<code>c 0</code>, manual duty) or K<sub>i</sub> is set to 0</td></tr>
+<tr><td>Derivative noise: differentiating multiplies noise by its frequency</td><td>D uses the gyro rate; no numerical derivative</td></tr>
+<tr><td>Tiny derivative signal: the per-sample angle change at 1 kHz is below the noise</td><td>Same: the gyro measures rate directly</td></tr>
+<tr><td>Derivative kick on a setpoint step</td><td>D acts on the measurement (&minus;&omega;<sub>y</sub>), not on the error</td></tr>
+<tr><td>Accelerometer noise from motor vibration, and atan2 bias</td><td>IIR low-pass (&tau; = 16 ms) before atan2, then only 0.1% weight on the accelerometer</td></tr>
+<tr><td>Motor can only push up; negative command is meaningless</td><td>Output clamped to [0, 6000]; I floored at 0</td></tr>
+<tr><td>Inrush current when the command jumps from 0 to full</td><td>Output may rise at most 20 counts per ms (Section 3.6)</td></tr>
+</table>
+<div class="tcap"><b>Table 1.</b> PID implementation problems and our fixes.</div>
+<figure data-fig="windup"><img src="figures/windup.png" style="width:66%">
+<figcaption><b>Figure 7.</b> Integrator windup: the integrator keeps growing past saturation, so the motor stays
+saturated long after the arm passes the target. From the course PID notes.</figcaption></figure>
+
+<h2>2.6 &nbsp;PWM and the motor circuit</h2>
+<p><b>PWM.</b> GPIO 4 is channel A of PWM slice 2. The slice's counter runs at f<sub>sys</sub>/CLKDIV = 6 MHz and wraps
+after 6001 counts:</p>
+<div class="eq"><img src="figures/eq_pwm_f.png" style="width:3.21in"></div>
+<p>The duty cycle is the channel level divided by 6001, so the command has 6001 steps (0.017% each). The motor's
+electrical (L/R) and mechanical time constants are much longer than the 1 ms period, so it responds to the average
+voltage:</p>
+<div class="eq"><img src="figures/eq_pwm_avg.png" style="width:4.18in"></div>
+<p>The low bandwidth of the 4N35 optoisolator is what keeps the PWM near 1 kHz: its phototransistor needs tens of
+microseconds to switch, so a much faster PWM would never fully turn the MOSFET on or off. The same wrap event drives
+our control interrupt, so the controller runs at exactly the PWM rate with no separate timer to keep in sync.</p>
+<p><b>Why the motor needs protection.</b> A motor's armature is an inductor. Switching off its current quickly produces
+a large voltage spike. The notes' example, 1 mH carrying 1 A switched off in 10 ns, gives</p>
+<div class="eq"><img src="figures/eq_ldi.png" style="width:2.30in"></div>
+<p>The 1N4001 flyback diode across the motor gives that current a safe path. The brushes also produce high-frequency
+noise (above 100 kHz), which the 0.1 &micro;F ceramic capacitor shunts (electrolytics are too slow). Finally, the 4N35
+isolates the Pico completely: the two sides share no ground, and only light crosses between them (Section 3.2).</p>
+
+<h2>2.7 &nbsp;Fixed-point arithmetic</h2>
+<p>All ISR math except <code>atan2</code> is fixed point. <code>fix15</code> is a signed 15.16 number in a 32-bit int
+(<a>Figure 8</a>): range &plusmn;32,768 with a resolution of 1/65,536 &asymp; 1.5 &times; 10<sup>&minus;5</sup>.</p>
+<div class="eq"><img src="figures/eq_fix.png" style="width:3.49in"></div>
+<figure data-fig="fix15"><img src="figures/fix15_layout.png" style="width:86%">
+<figcaption><b>Figure 8.</b> fix15 (15.16) bit layout used by <code>mpu6050.h</code>.</figcaption></figure>
+<ul>
+<li><b>Multiplication</b> uses a 64-bit product then shifts right by 16. In the PID code we shift K<sub>p</sub>&middot;e
+right by 32 instead, which turns the product of two 15.16 numbers directly into an integer duty count.</li>
+<li><b>Sensor scaling</b> (in <code>mpu6050.c</code>): at &plusmn;2 g the accelerometer gives 16,384 counts per g;
+shifting left by 2 gives 65,536 = 1.0 g. At &plusmn;250 &deg;/s the gyro gives 131 counts per &deg;/s;
+<code>multfix15(raw, 500&lt;&lt;16)</code> = raw &times; 500 / 65,536 &asymp; raw / 131.</li>
+<li><b>Constants are pre-scaled and slightly rounded:</b> 0.001 &rarr; 65 (really 0.000992) and 0.999 &rarr; 65,470.
+The gyro step is therefore about 0.8% short, and the PWM period is 1.0002 ms rather than 1 ms. The accelerometer path
+corrects both slowly, which is another reason the filter needs a little accelerometer weight.</li>
+</ul>
+<p>Two bugs we hit came straight from mixing formats (Section 3.1): a stray set of 1.15 macros (1.0 = 32,768) read
+the driver's 15.16 data at half scale, and passing <code>180/M_PI</code> as a fix15 argument truncated it to the integer
+57. The fix was to use the header's <code>oneeightyoverpi</code> constant (3,754,936 = 57.2958 &times; 65,536).</p>
+
+<h2>2.8 &nbsp;I2C</h2>
+<p>I2C is a two-wire, open-drain bus: devices only ever pull SDA and SCL low, and pull-up resistors bring them high, so
+any device can hold the bus. Each byte is 8 data bits plus an acknowledge bit. A read of the MPU-6050 writes the
+start register address, then issues a <i>repeated start</i> (keeping control of the bus) and reads 6 bytes; the IMU
+auto-increments its register pointer. At 400 kHz:</p>
+<div class="eq"><img src="figures/eq_i2c.png" style="width:4.75in"></div>
+<p>So the I2C reads use about 40% of each control period, which is why the rest of the ISR is lean fixed-point code and
+all drawing runs on the other core. Open-drain also explains our worst hardware bug: if the Pico resets in the middle
+of a read, the still-powered IMU can be left holding SDA low and every later transfer hangs (Section 3.1).</p>
+
+<!-- ======================================================= 3 DESIGN -->
+<h1 class="sec">3 &nbsp;Design and Testing Methods</h1>
+
+<h2>3.1 &nbsp;Build order and debugging</h2>
+<p>We built and tested in stages, verifying each one on the VGA screen before closing the next loop: motor driver PCB
+and open-loop PWM (week 1); IMU, complementary filter, display and P control (week 2); D, I, the demo button and
+overcurrent protection (week 3). Most of our debugging time went to start-up hangs and sensor conventions rather than
+control code:</p>
+<table class="t" data-tab="bugs"><tr><th style="width:26%">Symptom</th><th style="width:38%">Cause</th><th>Fix</th></tr>
+<tr><td>Fan at full speed even at duty 0 after merging the PWM demo into the IMU demo</td><td>The program never reached
+the PWM setup: <code>mpu6050_reset()</code> uses blocking I2C writes and hung, leaving GPIO 4 floating</td><td>Found by
+noticing that VGA and serial were also dead; IMU wiring re-seated</td></tr>
+<tr><td>VGA blank, serial dead, again with the wiring fine</td><td>Stuck I2C bus: the IMU held SDA low after a reset
+in mid-transfer. Reflashing doesn't clear it, a power cycle does</td><td>Bus recovery at start-up: clock SCL up to 9
+times until the IMU releases SDA (<code>main()</code>, lines 568&ndash;586)</td></tr>
+<tr><td>Angles wrong by 2&times;</td><td>Local 1.15 fixed-point macros overrode the driver's 15.16 macros</td><td>Removed
+the local macros</td></tr>
+<tr><td>Angles off by a constant factor</td><td><code>180/M_PI</code> truncated to 57 when passed as fix15</td><td>Use <code>oneeightyoverpi</code></td></tr>
+<tr><td>Angles read 80&ndash;300&deg; and didn't track the arm</td><td>The filter used a<sub>y</sub>, the rotation axis
+(always near 0), so <code>atan2</code> flipped between &plusmn;90&deg;; plus a leftover +&pi; offset</td><td>Use
+a<sub>x</sub>, a<sub>z</sub> and gyro y; remove +&pi; so horizontal = 0&deg;</td></tr>
+<tr><td>Complementary angle jumped the wrong way, then crept to the right value</td><td>Gyro sign opposite to the
+accelerometer's (the symptom described in lecture)</td><td>Add, rather than subtract, the gyro step</td></tr>
+<tr><td>P-only arm settled about 10&deg; low or bounced</td><td>P-only needs a non-zero error to hold the arm up;
+higher K<sub>p</sub> oscillates</td><td>Add D (damping), then I (removes the offset)</td></tr>
+</table>
+<div class="tcap"><b>Table 2.</b> Main problems found during development. Appendix B has the full AI prompt log for these sessions.</div>
+<p>Before closing the loop we checked the filter by hand with the motor off, tilting the arm and watching both angle
+traces on the VGA. This is how we caught the axis and sign problems in <a>Table 2</a>.</p>
+
+<h2>3.2 &nbsp;Motor driver circuit</h2>
+<p>As the handout requires, the driver is soldered on the course PCB rather than a breadboard
+(<a>Figure 9</a>). The motor runs from its own 5 V supply through an IRLB8721 logic-level N-MOSFET whose gate
+is driven at 12 V. The Pico never touches the motor side: GPIO 4 lights the 4N35's LED through 330 &Omega;, and the
+phototransistor switches the 12 V gate supply onto the MOSFET gate.</p>
+<figure data-fig="schematic"><img src="figures/motor_schematic.png" style="width:84%">
+<figcaption><b>Figure 9.</b> Motor driver schematic (as built on the course PCB). Only light crosses the 4N35;
+the Pico and motor sides have separate supplies and grounds.</figcaption></figure>
+<ul>
+<li><b>4N35 optoisolator:</b> when GPIO 4 is high the phototransistor conducts and pulls the gate toward 12 V, so the
+motor runs. When it is low, the <b>10 k&Omega;</b> resistor pulls the gate to ground, so the MOSFET is off. This is the
+"extra 10 k" on the PCB the course page asks about: without it the gate would float and the motor could run on its own.
+The <b>1 M&Omega;</b> base resistor drains the phototransistor's stored base charge, shortening its fall time.</li>
+<li><b>1N4001 flyback diode</b> across the motor catches the inductive spike of Section 2.6.</li>
+<li><b>0.1 &micro;F ceramic capacitor</b> across the motor shunts brush noise.</li>
+</ul>
+<p>We first drove the board with the course PWM demo and confirmed that the motor speed followed the duty cycle set
+from the serial terminal, before merging the PWM code into the IMU program (where the <code>n</code> command now sets a
+manual duty).</p>
+
+<h2>3.3 &nbsp;PWM configuration</h2>
+<p>GPIO 4 and 5 are assigned to PWM slice 2 (channel B on GPIO 5 is set to level 0 and unused). The slice wraps at
+<code>WRAPVAL</code> = 6000 with <code>CLKDIV</code> = 25, giving the 999.8 Hz of Section 2.6, and its wrap interrupt
+is registered as <code>on_pwm_wrap()</code>. The ISR only writes a new level with <code>pwm_set_chan_level()</code>
+when the command changes. <code>DUTY_MAX</code> is 6000 (100%). We used a 4500 cap during early tuning and raised it back
+to 6000 for the final version, which also adds the slew limit of Section 3.6.</p>
+
+<h2>3.4 &nbsp;MPU-6050 and I2C</h2>
+<p>The IMU is on I2C0 at 400 kHz (SDA GPIO 8, SCL GPIO 9) and is powered from the Pico's 3.3 V. The course driver sets
+it up as in <a>Table 3</a>. In the ISR, <code>mpu6050_read_raw()</code> uses I2C calls with 250 &micro;s timeouts,
+so a glitch can cost one sample but can never hang the control loop. The one-time reset in <code>main()</code> still
+uses blocking writes, which is why the bus recovery runs first. After the reset, we seed the accelerometer filters and the
+complementary angle from the first reading, so the estimate starts at the true angle instead of creeping up from 0.</p>
+<table class="t" data-tab="regs"><tr><th>Register</th><th>Value</th><th>Effect</th></tr>
+<tr><td>0x6B PWR_MGMT_1</td><td>0x00</td><td>Wake from sleep</td></tr>
+<tr><td>0x19 SMPLRT_DIV</td><td>7</td><td>8 kHz / (1 + 7) = 1 kHz sample rate, matching the control rate</td></tr>
+<tr><td>0x1B GYRO_CONFIG</td><td>0x00</td><td>&plusmn;250 &deg;/s (131 LSB per &deg;/s)</td></tr>
+<tr><td>0x1C ACCEL_CONFIG</td><td>0x00</td><td>&plusmn;2 g (16,384 LSB per g)</td></tr>
+<tr><td>0x37 / 0x38</td><td>0x10 / 0x01</td><td>Data-ready interrupt enabled (pin not used; we poll from the PWM ISR)</td></tr>
+<tr><td>0x3B / 0x43</td><td>read 6 bytes each</td><td>Accelerometer x, y, z and gyro x, y, z, big-endian 16-bit</td></tr>
+</table>
+<div class="tcap"><b>Table 3.</b> MPU-6050 registers used by <code>mpu6050.c</code>.</div>
+
+<h2>3.5 &nbsp;The control ISR</h2>
+<p>Everything time-critical runs in <code>on_pwm_wrap()</code> on core 0, once per PWM period. Each call:</p>
+<ol>
+<li>Clears the slice-2 interrupt flag and toggles GPIO 14 (a 500 Hz square wave on a scope, one edge per ISR).</li>
+<li>Reads the IMU (accelerometer then gyro).</li>
+<li>Low-passes a<sub>x</sub> and a<sub>z</sub> (shift by 4) and computes the accelerometer angle with <code>atan2</code>.</li>
+<li>Updates the complementary filter with gyro y.</li>
+<li>Debounces the demo button and steps the demo target (Section 3.7).</li>
+<li>If closed loop is on, runs PID with conditional integration and the slew-limited clamp; otherwise clears the integrator.</li>
+<li>Writes the PWM level if it changed.</li>
+<li>Every 10th call (<code>threshold</code>), stores the angles and duty in 530-entry circular buffers for the display.</li>
+</ol>
+<p>The controller core, verbatim from <code>imu_demo.c</code> (comments shortened):</p>
+<pre class="snip">angle_error = desired_angle - complementary_angle ;              // + means arm is below target
+long long p_term = ((long long)Kp) * ((long long)angle_error) ;
+long long d_term = ((long long)Kd) * ((long long)gyro[1]) ;      // de/dt = -gyro y
+fix15 i_step = multfix15(Ki, angle_error) ;
+int pd = (int)((p_term - d_term) &gt;&gt; 32) ;                         // 15.16 x 15.16 -&gt; integer counts
+int u_limit = control + DUTY_SLEW ;                                // overcurrent protection: slew limit
+if (u_limit &gt; DUTY_MAX) u_limit = DUTY_MAX ;
+if (!(i_step &gt; 0 &amp;&amp; pd + fix2int15(i_term) &gt;= u_limit)) i_term += i_step ;  // conditional integration
+if (i_term &gt; int2fix15(i_max)) i_term = int2fix15(i_max) ;
+if (i_term &lt; 0) i_term = 0 ;
+int u = pd + fix2int15(i_term) ;
+if (u &lt; 0) u = 0 ;
+if (u &gt; u_limit) u = u_limit ;
+control = u ;</pre>
+<p>Positive error means the arm is below the target and needs more thrust. D is subtracted because
+de/dt = &minus;&omega;<sub>y</sub>: an arm rising fast gets less thrust, an arm falling fast gets more.</p>
+
+<h2>3.6 &nbsp;Overcurrent protection and anti-windup</h2>
+<p>A setpoint step makes the P term jump (80 &times; 90&deg; = 7200 counts on release from hanging). Stepping a stalled
+motor from 0 to full voltage draws a large inrush current, because there is no back-EMF yet to limit it
+(I = V/R at &omega; = 0). The final code therefore lets the command <i>rise</i> by at most <code>DUTY_SLEW</code> = 20
+counts per 1 ms sample. Decreases are not limited, so the controller can still cut thrust instantly.</p>
+<div class="eq"><img src="figures/eq_ulim.png" style="width:4.81in"></div>
+<p>The ramp is visible in every step of Section 5.2 as a dotted vertical line in the duty trace: one plotted point
+every 10 ms is a 200-count jump. 300 ms is short next to the arm's ~1 s response, so it costs little speed.</p>
+<p>The slew limit creates a new windup risk: while the output is pinned at the ramp ceiling, the error stays large
+and the integrator would keep charging. So integration is <i>conditional</i>: a positive I step is skipped whenever
+P + D + I is already at or above <code>u_limit</code>. This is the clamping rule from the course PID notes (stop
+integrating when the output is saturated and the error would push it further). Because of this, we left
+<code>i_max</code> at 10000, above <code>DUTY_MAX</code>, so the hard cap never binds in practice. The I term is also
+floored at 0, since a negative integral could only delay thrust when the arm needs it.</p>
+
+<h2>3.7 &nbsp;Demo button sequence</h2>
+<p>The button is on GPIO 15, wired to ground with the internal pull-up (pressed = low). The ISR polls it every 1 ms
+and accepts a new state only after it has disagreed with the old one for 20 consecutive samples (20 ms debounce). Since
+one ISR call is 1 ms, the sequence is timed by counting calls:</p>
+<table class="t" data-tab="demo"><tr><th style="width:22%">Time</th><th>Target and controller state</th></tr>
+<tr><td>Button held</td><td>Closed loop off, duty 0, integrator cleared, target &minus;90&deg;: the arm hangs straight down</td></tr>
+<tr><td>Release, t = 0</td><td>Closed loop on, target 0&deg; (horizontal)</td></tr>
+<tr><td>t = 5 s</td><td>Target +30&deg;</td></tr>
+<tr><td>t = 10 s</td><td>Target &minus;30&deg;</td></tr>
+<tr><td>t = 15 s</td><td>Target 0&deg;; the sequence ends and the controller keeps holding horizontal</td></tr>
+</table>
+<div class="tcap"><b>Table 4.</b> Demo sequence, run with whatever gains are currently loaded. No reset is needed.</div>
+<p>The target is written only at the four step times, so a serial <code>a</code> command can still override it in
+between.</p>
+
+<h2>3.8 &nbsp;VGA display</h2>
+<p>The Pico drives the monitor through the adapter PCB we soldered in Lab 2 (<a>Figure 10</a>): each colour bit
+passes through a series resistor, forming a simple resistor DAC with the monitor's 75 &Omega; input. We reused the
+course's double-buffered VGA driver (<a>Figure 11</a>): three PIO state machines generate hsync, vsync and the
+4-bit colour output, and a DMA chain streams pixel data to them. At each vsync the chain swaps buffers and sets a flag,
+giving the drawing thread about 16.7 ms per frame. A frame is 640 &times; 480 &times; 4 bits (two pixels per byte, 320
+bytes per row), so the two buffers use about 300 kB of the RP2350's 520 kB SRAM.</p>
+<div class="two">
+<figure data-fig="vgapcb"><img src="figures/vga_pcb.png" style="width:52%">
+<figcaption><b>Figure 10.</b> Our VGA adapter PCB (photographed during Lab 2).</figcaption></figure>
+<figure data-fig="dma"><img src="figures/vga_dma.png" style="width:100%">
+<figcaption><b>Figure 11.</b> The VGA driver's DMA chain, from lecture.</figcaption></figure>
+</div>
+<p>Core 1 runs only the drawing thread, so drawing can never delay the control ISR. Each frame it redraws:</p>
+<ul>
+<li><b>Top plot:</b> complementary angle (yellow) and target line (light blue), &minus;90&deg; to +90&deg; over 150 pixels
+(1.2&deg; per pixel).</li>
+<li><b>Bottom plot:</b> the controller's motor command <code>control</code> (orange/yellow), 0&ndash;6000 counts over 150
+pixels (40 counts per pixel).</li>
+<li><b>Text:</b> accelerometer and complementary angles, target, K<sub>p</sub>, K<sub>d</sub>, duty, mode, K<sub>i</sub>,
+I max and the live I term.</li>
+</ul>
+<p>With one stored point per 10 ms, the 530-pixel plot spans 5.3 s; the serial <code>t</code> command changes this. The plotted
+command is the controller output itself, sampled every 10 ms, not a separately low-pass-filtered copy. With
+K<sub>d</sub> = 12 and the slew limit, the trace was smooth enough to read its shape clearly (Section 5.2). The course
+Display page's filter, <code>motor_disp += (control &minus; motor_disp) &gt;&gt; 4</code>, is the same IIR as our
+accelerometer filter and would be a one-line addition (Section 6).</p>
+
+<h2>3.9 &nbsp;Serial interface</h2>
+<p>The serial thread on core 0 waits (without blocking the ISR) for a one-letter command, prompts for a value,
+range-checks it and writes it straight into the <code>volatile</code> globals the ISR reads, so it takes effect on the next
+1 ms cycle.</p>
+<table class="t" data-tab="serial"><tr><th>Cmd</th><th>Sets</th><th>Units / range</th></tr>
+<tr><td><code>a</code></td><td>Target angle</td><td>&minus;90 to +90&deg; (0 = horizontal)</td></tr>
+<tr><td><code>p</code></td><td>K<sub>p</sub></td><td>duty counts per degree, 0&ndash;6000</td></tr>
+<tr><td><code>i</code></td><td>K<sub>i</sub></td><td>duty counts per degree per ms, 0&ndash;100 (0 also clears the integrator)</td></tr>
+<tr><td><code>d</code></td><td>K<sub>d</sub></td><td>duty counts per &deg;/s, 0&ndash;6000</td></tr>
+<tr><td><code>m</code></td><td>Integrator cap <code>i_max</code></td><td>0&ndash;6000 duty counts</td></tr>
+<tr><td><code>c</code></td><td>Closed loop on / off</td><td>1 / 0 (0 also turns the motor off)</td></tr>
+<tr><td><code>n</code></td><td>Manual duty cycle (turns closed loop off)</td><td>0&ndash;6000</td></tr>
+<tr><td><code>t</code></td><td>Plot timestep</td><td>ISR samples per plotted point (default 10)</td></tr>
+</table>
+<div class="tcap"><b>Table 5.</b> Serial commands.</div>
+
+<h2>3.10 &nbsp;Wiring and system overview</h2>
+<table class="t" data-tab="wiring"><tr><th>Signal</th><th>RP2350 pin</th><th>Notes</th></tr>
+<tr><td>VGA Hsync / Vsync</td><td>GPIO 16 / 17</td><td>PIO state machines</td></tr>
+<tr><td>VGA Green lo / Green hi / Blue / Red</td><td>GPIO 18 / 19 / 20 / 21</td><td>470 &Omega; / 330 &Omega; / 330 &Omega; / 330 &Omega;</td></tr>
+<tr><td>MPU-6050 SDA / SCL</td><td>GPIO 8 / 9</td><td>I2C0, 400 kHz; IMU powered from 3.3 V</td></tr>
+<tr><td>Motor PWM</td><td>GPIO 4</td><td>Slice 2 channel A, to the 4N35 through 330 &Omega;</td></tr>
+<tr><td>(PWM slice 2 B)</td><td>GPIO 5</td><td>Configured, level 0, unused</td></tr>
+<tr><td>ISR timing</td><td>GPIO 14</td><td>Toggles every ISR (scope)</td></tr>
+<tr><td>Demo button</td><td>GPIO 15</td><td>To GND, internal pull-up, 20 ms debounce</td></tr>
+</table>
+<div class="tcap"><b>Table 6.</b> RP2350 wiring connections.</div>
+<figure data-fig="pinout"><img src="figures/pinout.svg" style="width:96%">
+<figcaption><b>Figure 12.</b> Pico 2 pinout with our pin assignments, coloured by subsystem.</figcaption></figure>
+<figure data-fig="block"><img src="figures/system_block.svg" style="width:100%">
+<figcaption><b>Figure 13.</b> System block diagram. Core 0 closes the loop at 1 kHz and runs the serial thread; core 1
+only draws. The orange path is the physical feedback through the arm.</figcaption></figure>
+
+<!-- ======================================================= 4 DOCUMENTATION -->
+<h1 class="sec">4 &nbsp;Documentation</h1>
+<p>Where to find the drawings, listings and data the course policy asks for:</p>
+<table class="t" data-tab="docs"><tr><th>Item</th><th>Where</th></tr>
+<tr><td>Motor circuit schematic</td><td><a>Figure 9</a>, Section 3.2</td></tr>
+<tr><td>System block diagram</td><td><a>Figure 13</a></td></tr>
+<tr><td>Pinout and wiring</td><td><a>Figure 12</a>, <a>Table 6</a></td></tr>
+<tr><td>Complementary filter</td><td><a>Figure 2</a>, <a>Figure 3</a>, Section 2.2</td></tr>
+<tr><td>IMU registers, serial commands, demo timing</td><td><a>Table 3</a>, <a>Table 5</a>, <a>Table 4</a></td></tr>
+<tr><td>VGA adapter and driver</td><td><a>Figure 10</a>, <a>Figure 11</a></td></tr>
+<tr><td>Rig photos</td><td><a>Figure 1</a> and the photos in <a>Figure 14</a>&ndash;<a>Figure 17</a></td></tr>
+<tr><td>VGA screen dumps (demo sequence)</td><td><a>Figure 14</a>&ndash;<a>Figure 17</a>; earlier runs in <a>Figure 18</a>, <a>Figure 19</a></td></tr>
+<tr><td>Settling times, hover duties</td><td><a>Table 8</a>, <a>Table 9</a></td></tr>
+<tr><td>Commented code listing</td><td>Appendix A</td></tr>
+<tr><td>AI prompt log</td><td>Appendix B</td></tr>
+</table>
+<div class="tcap"><b>Table 7.</b> Documentation index.</div>
+
+<!-- ======================================================= 5 RESULTS -->
+<h1 class="sec">5 &nbsp;Results</h1>
+<h2>5.1 &nbsp;Final gains</h2>
+<p>K<sub>p</sub> = 80 counts/&deg;, K<sub>i</sub> = 0.2 counts/(&deg;&middot;ms), K<sub>d</sub> = 12 counts/(&deg;/s),
+<code>i_max</code> = 10000 (non-binding; conditional integration handles windup), output 0&ndash;6000 with a +20 counts/ms
+slew limit. One set of gains ran the whole demo sequence without a reset; Section 7 (Q3) explains how we chose them.</p>
+
+<h2>5.2 &nbsp;Demo sequence</h2>
+<p><a>Figure 14</a>&ndash;<a>Figure 17</a> show the four steps of the button demo, taken from our video of the
+checked-off run. Each VGA screen (left) is paired with a photo of the arm holding that angle (right). In every screen,
+the top plot is the complementary angle (yellow) against the target (blue), the bottom plot is the motor command on a
+0&ndash;6000 scale, and the newest data is at the right.</p>
+
+<figure data-fig="demo1"><div class="pair"><img src="figures/zero.png"><img class="ph" src="figures/1D_zero.png"></div>
+<figcaption><b>Figure 14.</b> <b>t = 0: release, &minus;90&deg; &rarr; 0&deg;.</b> The duty starts at 0 (motor off while
+held), ramps up at the slew limit (dotted rise) to about 4100, dips to about 1300 as D brakes the rising arm, then
+settles at 3278. The arm comes up from below with no overshoot, and the integrator, which started from 0, pulls in the
+last few degrees. Readout at the right edge: target 0.0, complementary angle &minus;0.8&deg;, duty 3278,
+I term 3278.5. At rest the I term supplies essentially all of the command, as Section 2.4 predicts.
+Right: the arm holding horizontal (seen edge-on), with the duct hanging below the arm.</figcaption></figure>
+
+<figure data-fig="demo2"><div class="pair"><img src="figures/positive_30.png"><img class="ph" src="figures/1d_positive_30.png"></div>
+<figcaption><b>Figure 15.</b> <b>t = 5 s: 0&deg; &rarr; +30&deg;.</b> The P kick (80 &times; 30&deg; = 2400 counts on top of
+the 3280-count hover command) ramps the duty to about 5800. The arm overshoots to about +46&deg; and the duty
+dips to about 3100 while the extra integral built up during the rise unwinds, then it settles at +30.0&deg;
+with duty 3383 and I term 3336.5. Right: the arm at +30&deg;.</figcaption></figure>
+
+<figure data-fig="demo3"><div class="pair"><img src="figures/negative_30.png"><img class="ph" src="figures/1D_negative_30.png"></div>
+<figcaption><b>Figure 16.</b> <b>t = 10 s: +30&deg; &rarr; &minus;30&deg;.</b> The command drops straight to 0, because
+decreases are not slew-limited and the motor cannot pull down, so gravity drives the fall. The arm passes the
+target falling fast, and P and D call for a burst of about 5000 counts to catch it. The arm still undershoots to about
+&minus;56&deg;, rebounds, and the duty hits 0 a second time before settling. The I term lost much of its stored
+value during the fall, so the final approach is a slow creep: the duty is still rising (2533, I term 2433.9) with
+the arm at &minus;32.8&deg;. Right: the arm at &minus;30&deg;.</figcaption></figure>
+
+<figure data-fig="demo4"><div class="pair"><img src="figures/zero_again.png"><img class="ph" src="figures/1D_zero.png"></div>
+<figcaption><b>Figure 17.</b> <b>t = 15 s: &minus;30&deg; &rarr; 0&deg;.</b> The fastest step. The integrator is already
+near the hover value, so a short P kick (duty about 4700) lifts the arm with only about 4&deg; of overshoot, and it
+settles at 0.2&deg; with duty 3288 and I term 3307.2. Right: the arm back at horizontal (same pose as
+<a>Figure 14</a>).</figcaption></figure>
+
+<h2>5.3 &nbsp;Settling times</h2>
+<table class="t" data-tab="settle"><tr><th>Step</th><th>Settling time (s)</th><th>Peak overshoot (from screen)</th><th>Main limit on the response</th></tr>
+<tr><td>&minus;90&deg; &rarr; 0&deg;</td><td>2.74</td><td>none (approaches from below)</td><td>Integrator starts at 0 and must build the hover command</td></tr>
+<tr><td>0&deg; &rarr; +30&deg;</td><td>2.38</td><td>&asymp; 16&deg; (peak &asymp; +46&deg;)</td><td>Integral charged during the rise has to unwind</td></tr>
+<tr><td>+30&deg; &rarr; &minus;30&deg;</td><td>3.56</td><td>&asymp; 26&deg; (low &asymp; &minus;56&deg;)</td><td>Gravity-driven fall (motor can't pull down); I partly unwound and rebuilds slowly</td></tr>
+<tr><td>&minus;30&deg; &rarr; 0&deg;</td><td>0.98</td><td>&asymp; 4&deg;</td><td>Integrator already close to the hover value</td></tr>
+</table>
+<div class="tcap"><b>Table 8.</b> Settling times measured from our recording of the demo run. Overshoot was read off the VGA
+photos (1.2&deg; per screen pixel, so about &plusmn;3&deg;).</div>
+<p>The pattern matches the physics of Sections 2.3&ndash;2.6. Upward steps are pushed by the motor and braked by
+gravity and D, so they are well controlled. The downward step is driven by gravity and can only be braked by thrust,
+which has to ramp back up from zero, so it overshoots most and settles slowest. In every step the integrator's state
+going in decides the tail: it is the term that has to change by the difference in hover command between the two
+angles.</p>
+
+<h2>5.4 &nbsp;Hover duty vs. angle</h2>
+<p>At rest P &asymp; 0 and D &asymp; 0, so the steady duty measures the thrust needed to hold each angle.</p>
+<table class="t" data-tab="hover"><tr><th>Angle</th><th>Duty (I term)</th><th>Duty as % of period</th>
+<th>(duty / duty<sub>0&deg;</sub>)&sup2; &asymp; thrust ratio</th><th>Point-mass model cos &phi;</th></tr>
+<tr><td>0&deg;</td><td>3278 (3279)</td><td>54.6%</td><td>1.00</td><td>1.00</td></tr>
+<tr><td>+30&deg;</td><td>3383 (3337)</td><td>56.4%</td><td>1.07</td><td>0.87</td></tr>
+<tr><td>&minus;30&deg;</td><td>2533 (2434), still rising</td><td>42.2%</td><td>&le; 0.60</td><td>0.87</td></tr>
+</table>
+<div class="tcap"><b>Table 9.</b> Steady duty at each demo angle, read from the VGA readouts. The thrust ratio assumes thrust &prop;
+&omega;&sup2; with &omega; roughly proportional to the average motor voltage.</div>
+<p>A symmetric point-mass arm would need the same thrust at &plusmn;30&deg;, 13% less than at horizontal. Ours needs
+<i>more</i> at +30&deg; and much less at &minus;30&deg;. This is the centre-of-mass offset of Section 2.3: with the duct
+hanging below the arm, the gravity torque is proportional to r cos &phi; + d sin &phi;. Fitting the two ratios gives
+d/r &asymp; 0.4&ndash;0.5. That is only a rough estimate, since the &minus;30&deg; duty was still creeping up and thrust
+is only approximately &prop; duty&sup2;, but the direction of the asymmetry is clear. It also means the arm's passive
+balance point is not exactly at horizontal: by the same model, gravity stops being restoring around
+&phi; &asymp; arctan(d/r), roughly 20&ndash;30&deg; above horizontal.</p>
+
+<h2>5.5 &nbsp;Stable range</h2>
+<p>With the final gains the arm was stable from <b>&minus;90&deg;</b> (hanging; the controller simply turns the motor off)
+up to about <b>+50&deg;</b>. The upper limit varied with which 5 V motor supply we used; above it the arm was no
+longer stable with these gains (details in Section 7, Q4).</p>
+
+<h2>5.6 &nbsp;Earlier tuning runs</h2>
+<div class="two">
+<figure data-fig="ponly"><img src="figures/p_only_kp120.png" style="width:100%">
+<figcaption><b>Figure 18.</b> Early P-only test (K<sub>p</sub> = 120, K<sub>i</sub> = K<sub>d</sub> = 0, target 0&deg;), on an
+older build with a &plusmn;250 angle axis. The arm oscillates steadily, about 6.5 cycles in 5.3 s (&asymp; 1.2 Hz):
+the edge of stability. The I term was still 3000 from an earlier run, because at that time setting K<sub>i</sub> = 0
+did not clear it. The final code clears the I term when K<sub>i</sub> is set to 0.</figcaption></figure>
+<figure data-fig="accelnoise"><img src="figures/early_accel_noise.jpg" style="width:100%">
+<figcaption><b>Figure 19.</b> Early build with much larger gains (K<sub>p</sub> = 500, K<sub>d</sub> = 300,
+K<sub>i</sub> = 5). The bottom plot still showed the raw accelerometer axes (&plusmn;2 g): with the motor running they are
+spread across most of the range by vibration, while the complementary angle in the top plot is a clean line. This is
+the motivation for the complementary filter in one picture.</figcaption></figure>
+</div>
+
+<!-- ======================================================= 6 CONCLUSION -->
+<h1 class="sec">6 &nbsp;Conclusion</h1>
+<p>Our helicopter met the lab requirements. The arm ran the full 0&deg; / +30&deg; / &minus;30&deg; / 0&deg; demo on one
+set of gains without a reset. Every step settled within 3.6 s, gains and target could be changed from the serial
+terminal at any time, and the VGA showed the angle, target and motor command live. The results also lined up with the
+theory. The complementary filter's 1 s crossover kept vibration out of the estimate. The steady integral equalled
+the hover duty, as PID theory predicts. The asymmetric settling and hover duties are what the one-directional actuator
+and the arm's offset centre of mass predict.</p>
+<p>We learned how to fuse two imperfect sensors, how each PID term shapes the response, and why a motor needs
+isolation, a flyback diode and a bypass capacitor. Most of our debugging went to the I2C start-up hang and to
+fixed-point and axis conventions, not to the controller.</p>
+<p><b>What we would change.</b></p>
+<ul>
+<li>Plot a low-passed copy of the command (<code>motor_disp</code>, the course Display page's IIR) as the handout
+asks, rather than the sampled raw command.</li>
+<li>Calibrate the gyro bias at start-up (average a second of readings with the arm still), removing the &tau;&middot;b offset of Section 2.2.</li>
+<li>Add a feed-forward hover command based on the r cos &phi; + d sin &phi; model, so the integrator only trims the
+remaining error. This should shorten the slow tails, especially after downward steps.</li>
+<li>Move the <code>printf</code> on button events out of the ISR. Printing inside the 1 kHz interrupt can stretch one
+control period.</li>
+<li>Measure the arm length and mass so the plant model can be checked quantitatively.</li>
+</ul>
+
+<!-- ======================================================= 7 QUESTIONS -->
+<h1 class="sec">7 &nbsp;Answers to the Lab Report Questions</h1>
+<p>The helicopter handout asks the report to include the following. Each answer is self-contained and points to the
+supporting figures and tables.</p>
+
+<div class="q"><h3>Q1. A schematic of the circuit you built</h3>
+<p>See <a>Figure 9</a>, with the wiring in <a>Table 6</a>, <a>Figure 12</a> and <a>Figure 13</a>. GPIO 4
+(PWM) drives the 4N35's LED through 330 &Omega;. Its phototransistor switches the 12 V gate supply (through a kill
+switch) onto the gate of the IRLB8721 MOSFET, with a 10 k&Omega; gate pull-down and a 1 M&Omega; base resistor for a
+fast fall time. The motor runs from a separate 5 V supply with a 1N4001 flyback diode and a 0.1 &micro;F ceramic
+capacitor across it. The Pico and motor sides share no ground. The IMU (I2C0, GPIO 8/9), VGA (GPIO 16&ndash;21) and
+demo button (GPIO 15) connect to the Pico as in <a>Table 6</a>.</p></div>
+
+<div class="q"><h3>Q2. VGA screen dumps of (1) motor control and (2) actual angle, including the four-angle demo</h3>
+<p>See <a>Figure 14</a>&ndash;<a>Figure 17</a>, one per step of the demo (0&deg;, +30&deg;, &minus;30&deg;, 0&deg;), each paired
+with a photo of the arm at that angle. In each, the top trace is the measured angle against the target and the bottom
+trace is the motor command (0&ndash;6000). While the button is held the command is 0 and the arm hangs at &minus;90&deg;
+(left edge of <a>Figure 14</a>). Every step shows the slew-limited ramp in the command, and the settled command
+matches the integrator, as described in the captions.</p></div>
+
+<div class="q"><h3>Q3. How you selected the three PID gains</h3>
+<p><b>Starting values from units.</b> We sized each gain so its term gives a sensible duty count:</p>
+<ul>
+<li>K<sub>p</sub>: a 90&deg; error (hanging, target horizontal) should call for roughly full duty, so
+K<sub>p</sub> &asymp; 6000/90 &asymp; 67, i.e. tens.</li>
+<li>K<sub>d</sub>: the gyro rate in &deg;/s is the same order of magnitude as the error in degrees, so K<sub>d</sub>
+is also tens. (The course page's "thousands" assumes differencing noisy ADC samples, not a gyro.)</li>
+<li>K<sub>i</sub>: the integrator adds K<sub>i</sub>&middot;e a thousand times a second, so K<sub>i</sub> must be orders
+of magnitude smaller; we started near 1/32.</li>
+</ul>
+<p><b>Tuning procedure</b> (the order from lecture and the PID notes), with what we looked for at each stage:</p>
+<ol>
+<li><b>P only:</b> raise K<sub>p</sub> to find the edge between stability (oscillations die out and the arm settles) and
+instability (oscillations grow into large swings). K<sub>p</sub> = 120 gave steady oscillation at about 1.2 Hz
+(<a>Figure 18</a>), so we backed off to K<sub>p</sub> = 80, about two-thirds of that.</li>
+<li><b>Add D</b> until the oscillation stops. Our test: push the arm down below the target and let go. It should spring
+back up, overshoot once and quickly settle to a stable position. We ended at K<sub>d</sub> = 12.</li>
+<li><b>Add I</b> to remove the steady-state error that P and D leave and bring the arm onto the target. Raising
+K<sub>i</sub> reaches the target faster, but too much causes overshoot and slow, rolling oscillation (the integrator's
+90&deg; of phase lag). We settled on K<sub>i</sub> = 0.2 (T<sub>i</sub> = K<sub>p</sub>/K<sub>i</sub> = 0.4 s). At that rate a 5&deg;
+error grows the I term by 1000 counts per second, so it can build the roughly 3300-count hover command within a few
+seconds.</li>
+<li><b>Check the whole demo</b> with the button and adjust. Conditional integration (Section 3.6) handled windup, so
+we left <code>i_max</code> at 10000.</li>
+</ol>
+<p>The live I-term readout on the VGA (Section 3.8) was the most useful tuning aid: at every steady angle it should
+equal the duty, which confirms that P and D have done their job and only the integral is holding the arm up
+(<a>Figure 14</a>&ndash;<a>Figure 17</a>).</p></div>
+
+<div class="q"><h3>Q4. What are the maximum/minimum angles that produce stable behaviour for your PID gains?</h3>
+<p><b>Maximum &asymp; +50&deg;; minimum &minus;90&deg;</b> (0&deg; = horizontal). The maximum depended on which 5 V motor
+supply we used. Why the range is limited:</p>
+<ul>
+<li><b>Minimum.</b> &minus;90&deg; is the hanging rest position. For targets near it the required thrust goes to zero,
+the controller output clamps at 0 and gravity holds the arm, so it is trivially stable. The serial interface accepts
+targets down to &minus;90&deg;.</li>
+<li><b>Maximum.</b> Above the arm's balance point (horizontal for a point mass, somewhat higher for ours, Section 5.4),
+gravity's stiffness is negative: tipping further up <i>reduces</i> the restoring gravity torque, so the controller must
+supply all of the stability. The further above that point, the stronger this destabilising term (it grows like the sine
+of the distance past the balance point), until the margin that K<sub>d</sub> provides runs out.</li>
+<li><b>Operating-point dependence.</b> The plant gain 2K<sub>T</sub>&omega;<sub>0</sub>/(mL) changes with angle, and one
+fixed set of gains was tuned for the demo range around horizontal.</li>
+<li><b>Supply dependence.</b> A different supply changes thrust per duty count (thrust &prop; V&sup2;), which scales the
+whole loop gain. The same gains then sit closer to or further from the stability edge, so the maximum angle moved.</li>
+</ul></div>
+
+<div class="q"><h3>Q5. What are the settling times at different angles?</h3>
+<table class="t"><tr><th>Step</th><th>Settling time</th><th>Overshoot</th></tr>
+<tr><td>&minus;90&deg; &rarr; 0&deg; (release)</td><td>2.74 s</td><td>none</td></tr>
+<tr><td>0&deg; &rarr; +30&deg;</td><td>2.38 s</td><td>&asymp; 16&deg;</td></tr>
+<tr><td>+30&deg; &rarr; &minus;30&deg;</td><td>3.56 s</td><td>&asymp; 26&deg;</td></tr>
+<tr><td>&minus;30&deg; &rarr; 0&deg;</td><td>0.98 s</td><td>&asymp; 4&deg;</td></tr></table>
+<p style="margin-top:5pt">(Same data as <a>Table 8</a>.) Upward steps settle in about 1&ndash;2.7 s. The downward step is
+slowest (3.56 s) because the motor can only cut thrust: gravity drives the fall, the arm undershoots, and the
+integrator has to rebuild. The fastest step (&minus;30&deg; &rarr; 0&deg;, 0.98 s) started with the integrator already close
+to the hover value. The slowest upward step (release from &minus;90&deg;) started with the integrator at zero.</p></div>
+
+<div class="q"><h3>Q6. A heavily commented listing of your code</h3>
+<p>Appendix A lists <code>imu_demo.c</code>, <code>mpu6050.c</code>, <code>mpu6050.h</code> and <code>CMakeLists.txt</code>
+exactly as built and demonstrated. The course VGA driver and protothreads header were used unchanged and are not listed.
+Every change from the course MPU-6050 demo is marked in the comments (<code>ADDED</code>, <code>CHANGED</code>,
+<code>FIXED</code>, <code>REMOVED</code>), and those sections are shaded in the listing. Sections 2&ndash;3 explain the
+code's math and structure.</p></div>
+
+<div class="q"><h3>Q7. A prompt log from any AI tool used for code generation</h3>
+<p>Appendix B is the full log of our code-generation sessions with Claude Code (model: Claude Opus 5.5). It has 18 prompts
+from Oct 21&ndash;22, 2026, with our prompts verbatim and Claude's responses. Totals: 401 prompt words and
+1719 logged response words exchanged; 214 lines of code given. Suggested additions / deletions / modifications:
+<b>36 / 1 / 22</b>. Accepted, meaning still in the final code: <b>29 / 1 / 19</b>.</p></div>
+
+<!-- ======================================================= 8 WORK / AI -->
+<h1 class="sec" style="break-before:auto; margin-top: 18pt">8 &nbsp;Work Distribution and AI Use</h1>
+<p>Amber, Ivan, and Zarif worked together on all parts of the lab. We frequently met outside of our lab sections, and
+most of our work was done in person in the lab. Outside of the lab, we communicated frequently to ensure that we were
+all aware of the progress that had been made and what the immediate next steps were.</p>
+<p><b>AI use.</b> We used Claude Code (Claude Opus 5.5) while writing the program. Every prompt and response is in
+Appendix B, and the code it contributed is marked with <code>ADDED</code> / <code>CHANGED</code> / <code>FIXED</code>
+comments (shaded in Appendix A). We also used Claude to help organise, typeset and edit this report from our notes,
+draft report, photos, screenshots and measurements. Its code suggestions during report writing (a low-passed display
+variable, an alternative button routine on GPIO 2 and extra comments) were not merged into our program. All measurements,
+photos, screenshots and the hardware are ours.</p>
+
+<h1 class="sec" style="break-before:auto; margin-top: 18pt">References</h1>
+<ol style="font-size:9.6pt">
+<li>V. H. Adams, <i>PID control of a 1D helicopter</i> (lab handout). https://vanhunteradams.com/Pico/Helicopter/Helicopter.html</li>
+<li>V. H. Adams, <i>Complementary filters</i>. https://vanhunteradams.com/Pico/ReactionWheel/Complementary_Filters.html</li>
+<li>V. H. Adams, <i>Phenomenological introduction to PID controllers</i>. https://vanhunteradams.com/PID/PID.html</li>
+<li>V. H. Adams, <i>Analytical introduction to PID controllers</i>. https://vanhunteradams.com/PID/PID_Analytical.html</li>
+<li>V. H. Adams, <i>DC motor circuit and PWM</i>. https://vanhunteradams.com/Pico/Helicopter/MotorCircuit.html</li>
+<li>V. H. Adams, <i>Data display</i>. https://vanhunteradams.com/Pico/Helicopter/Display.html</li>
+<li>V. H. Adams, <i>Inter-Integrated Circuit (I2C)</i>. https://vanhunteradams.com/Protocols/I2C/I2C.html</li>
+<li>V. H. Adams, MPU6050 IMU demo and PWM demo code. https://github.com/vha3/Hunter-Adams-RP2040-Demos</li>
+<li>Raspberry Pi Ltd., <i>RP2350 Datasheet</i> (PWM and I2C chapters).</li>
+<li>InvenSense, <i>MPU-6000/MPU-6050 Register Map and Descriptions</i>.</li>
+<li>B. Land, <i>ECE 4760/5730 course policy</i> (lab report sections). https://people.ece.cornell.edu/land/courses/ece4760/EE4760_policy.html</li>
+</ol>
+
+<!-- ======================================================= APPENDIX A -->
+<h1 class="sec">Appendix A &nbsp;Commented Code Listing</h1>
+<p>These are the files exactly as built and demonstrated (Pico 2 / RP2350, Pico SDK 2.3.1). The program also uses the
+course's <code>VGA/vga16_graphics_v3.c/.h</code>, the three VGA PIO programs and <code>pt_cornell_rp2040_v1_4.h</code>,
+unchanged. Changes from the course MPU-6050 demo are marked in the comments with <code>ADDED</code>,
+<code>CHANGED</code>, <code>FIXED</code> or <code>REMOVED</code>; these are the sections written with AI assistance (Appendix B)
+and later edited by us. <span class="legend"></span> marks those lines. Comments are green.</p>
+<h3 class="codehead">A.1 &nbsp;imu_demo.c (main program: ISR, controller, display, serial)</h3><table class="code"><tr><td class="ln">1</td><td class="src"><span class="cm">/**</span></td></tr><tr><td class="ln">2</td><td class="src"><span class="cm"> * V. Hunter Adams (vha3@cornell.edu)</span></td></tr><tr><td class="ln">3</td><td class="src"><span class="cm"> * </span></td></tr><tr><td class="ln">4</td><td class="src"><span class="cm"> * This demonstration utilizes the MPU6050.</span></td></tr><tr><td class="ln">5</td><td class="src"><span class="cm"> * It gathers raw accelerometer/gyro measurements, scales</span></td></tr><tr><td class="ln">6</td><td class="src"><span class="cm"> * them, and plots them to the VGA display. The top plot</span></td></tr><tr><td class="ln">7</td><td class="src"><span class="cm"> * shows the target and actual (complementary) angle, bottom</span></td></tr><tr><td class="ln">8</td><td class="src"><span class="cm"> * plot shows the fan duty cycle (PID output).</span></td></tr><tr class="ai"><td class="ln">9</td><td class="src"><span class="cm"> * CHANGED: top plot was gyro, bottom plot was accelerometer.</span></td></tr><tr><td class="ln">10</td><td class="src"><span class="cm"> * </span></td></tr><tr><td class="ln">11</td><td class="src"><span class="cm"> * HARDWARE CONNECTIONS</span></td></tr><tr><td class="ln">12</td><td class="src"><span class="cm"> *  - GPIO 16 ---&gt; VGA Hsync</span></td></tr><tr><td class="ln">13</td><td class="src"><span class="cm"> *  - GPIO 17 ---&gt; VGA Vsync</span></td></tr><tr><td class="ln">14</td><td class="src"><span class="cm"> *  - GPIO 18 ---&gt; 470 ohm resistor ---&gt; VGA Green</span></td></tr><tr><td class="ln">15</td><td class="src"><span class="cm"> *  - GPIO 19 ---&gt; 330 ohm resistor ---&gt; VGA Green</span></td></tr><tr><td class="ln">16</td><td class="src"><span class="cm"> *  - GPIO 20 ---&gt; 330 ohm resistor ---&gt; VGA Blue</span></td></tr><tr><td class="ln">17</td><td class="src"><span class="cm"> *  - GPIO 21 ---&gt; 330 ohm resistor ---&gt; VGA Red</span></td></tr><tr><td class="ln">18</td><td class="src"><span class="cm"> *  - RP2040 GND ---&gt; VGA GND</span></td></tr><tr><td class="ln">19</td><td class="src"><span class="cm"> *  - GPIO 8 ---&gt; MPU6050 SDA</span></td></tr><tr><td class="ln">20</td><td class="src"><span class="cm"> *  - GPIO 9 ---&gt; MPU6050 SCL</span></td></tr><tr><td class="ln">21</td><td class="src"><span class="cm"> *  - 3.3v ---&gt; MPU6050 VCC</span></td></tr><tr><td class="ln">22</td><td class="src"><span class="cm"> *  - RP2040 GND ---&gt; MPU6050 GND</span></td></tr><tr><td class="ln">23</td><td class="src"><span class="cm"> *  - GPIO 4 ---&gt; PWM_OUT</span></td></tr><tr><td class="ln">24</td><td class="src"><span class="cm"> *  - GPIO 15 ---&gt; pushbutton ---&gt; GND (internal pull-up)</span></td></tr><tr><td class="ln">25</td><td class="src"><span class="cm"> */</span></td></tr><tr><td class="ln">26</td><td class="src">&#8203;</td></tr><tr><td class="ln">27</td><td class="src">&#8203;</td></tr><tr><td class="ln">28</td><td class="src"><span class="cm">// Include standard libraries</span></td></tr><tr><td class="ln">29</td><td class="src"><span class="pp">#include &lt;stdio.h&gt;</span></td></tr><tr><td class="ln">30</td><td class="src"><span class="pp">#include &lt;stdlib.h&gt;</span></td></tr><tr><td class="ln">31</td><td class="src"><span class="pp">#include &lt;math.h&gt;</span></td></tr><tr><td class="ln">32</td><td class="src"><span class="pp">#include &lt;string.h&gt;</span></td></tr><tr><td class="ln">33</td><td class="src"><span class="cm">// Include PICO libraries</span></td></tr><tr><td class="ln">34</td><td class="src"><span class="pp">#include &quot;pico/stdlib.h&quot;</span></td></tr><tr><td class="ln">35</td><td class="src"><span class="pp">#include &quot;pico/multicore.h&quot;</span></td></tr><tr><td class="ln">36</td><td class="src"><span class="cm">// Include hardware libraries</span></td></tr><tr><td class="ln">37</td><td class="src"><span class="pp">#include &quot;hardware/pwm.h&quot;</span></td></tr><tr><td class="ln">38</td><td class="src"><span class="pp">#include &quot;hardware/dma.h&quot;</span></td></tr><tr><td class="ln">39</td><td class="src"><span class="pp">#include &quot;hardware/irq.h&quot;</span></td></tr><tr><td class="ln">40</td><td class="src"><span class="pp">#include &quot;hardware/adc.h&quot;</span></td></tr><tr><td class="ln">41</td><td class="src"><span class="pp">#include &quot;hardware/pio.h&quot;</span></td></tr><tr><td class="ln">42</td><td class="src"><span class="pp">#include &quot;hardware/i2c.h&quot;</span></td></tr><tr><td class="ln">43</td><td class="src"><span class="pp">#include &quot;hardware/clocks.h&quot;</span></td></tr><tr><td class="ln">44</td><td class="src"><span class="pp">#include &quot;hardware/sync.h&quot;</span></td></tr><tr><td class="ln">45</td><td class="src"><span class="cm">// Include custom libraries</span></td></tr><tr><td class="ln">46</td><td class="src"><span class="pp">#include &quot;VGA/vga16_graphics_v3.h&quot;</span></td></tr><tr><td class="ln">47</td><td class="src"><span class="pp">#include &quot;mpu6050.h&quot;</span></td></tr><tr><td class="ln">48</td><td class="src"><span class="pp">#include &quot;pt_cornell_rp2040_v1_4.h&quot;</span></td></tr><tr><td class="ln">49</td><td class="src">&#8203;</td></tr><tr><td class="ln">50</td><td class="src"><span class="cm">// We will start drawing at column 81</span></td></tr><tr><td class="ln">51</td><td class="src"><span class="pp">#define LEFT_EDGE 81 </span></td></tr><tr><td class="ln">52</td><td class="src">&#8203;</td></tr><tr><td class="ln">53</td><td class="src"><span class="cm">// Rescale the measurements for display</span></td></tr><tr><td class="ln">54</td><td class="src">#define OLD_RANGE 500.  <span class="cm">// (+/- 250)</span></td></tr><tr><td class="ln">55</td><td class="src">#define NEW_RANGE 150.  <span class="cm">// (looks nice on VGA)</span></td></tr><tr><td class="ln">56</td><td class="src"><span class="pp">#define OLD_MIN -250. </span></td></tr><tr><td class="ln">57</td><td class="src"><span class="pp">#define OLD_MAX 250. </span></td></tr><tr><td class="ln">58</td><td class="src"><span class="pp">#define ACCEL_SCALE 120.0</span></td></tr><tr><td class="ln">59</td><td class="src">&#8203;</td></tr><tr><td class="ln">60</td><td class="src"><span class="cm">// Angle plot range (degrees)</span></td></tr><tr><td class="ln">61</td><td class="src"><span class="pp">#define ANGLE_MIN -90.</span></td></tr><tr><td class="ln">62</td><td class="src">#define ANGLE_RANGE 180.  <span class="cm">// (+/- 90)</span></td></tr><tr><td class="ln">63</td><td class="src"><span class="pp">#define RAD2DEG 57.2957795f</span></td></tr><tr><td class="ln">64</td><td class="src">&#8203;</td></tr><tr><td class="ln">65</td><td class="src"><span class="cm">// Place the plots</span></td></tr><tr><td class="ln">66</td><td class="src"><span class="pp">#define TOP_PLOT_BOTTOM 230</span></td></tr><tr><td class="ln">67</td><td class="src"><span class="pp">#define BOTTOM_PLOT_BOTTOM 430</span></td></tr><tr><td class="ln">68</td><td class="src"><span class="pp">#define PLOT_WIDTH 530</span></td></tr><tr><td class="ln">69</td><td class="src">&#8203;</td></tr><tr><td class="ln">70</td><td class="src"><span class="cm">// Arrays in which raw measurements will be stored</span></td></tr><tr><td class="ln">71</td><td class="src">fix15 acceleration[3], gyro[3];</td></tr><tr><td class="ln">72</td><td class="src">&#8203;</td></tr><tr><td class="ln">73</td><td class="src"><span class="cm">// Arrays for circular display buffer</span></td></tr><tr><td class="ln">74</td><td class="src">fix15 ax[PLOT_WIDTH] ;</td></tr><tr><td class="ln">75</td><td class="src">fix15 ay[PLOT_WIDTH] ;</td></tr><tr><td class="ln">76</td><td class="src">fix15 az[PLOT_WIDTH] ;</td></tr><tr><td class="ln">77</td><td class="src">fix15 gx[PLOT_WIDTH] ;</td></tr><tr><td class="ln">78</td><td class="src">fix15 gy[PLOT_WIDTH] ;</td></tr><tr><td class="ln">79</td><td class="src">fix15 gz[PLOT_WIDTH] ;</td></tr><tr><td class="ln">80</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">81</td><td class="src"><span class="cm">// ===== ADDED: complementary filter =====</span></td></tr><tr class="ai"><td class="ln">82</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">83</td><td class="src"><span class="cm">// Low-passed accelerometer measurements (15.16 fixed point, g&#x27;s)</span></td></tr><tr class="ai"><td class="ln">84</td><td class="src">fix15 filtered_ax, filtered_az ;</td></tr><tr class="ai"><td class="ln">85</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">86</td><td class="src"><span class="cm">// Angle estimates (15.16 fixed point, degrees)</span></td></tr><tr class="ai"><td class="ln">87</td><td class="src">fix15 accel_angle ;          <span class="cm">// angle from accelerometer only (noisy, no drift)</span></td></tr><tr class="ai"><td class="ln">88</td><td class="src">fix15 gyro_angle_delta ;     <span class="cm">// angle change from gyro this timestep</span></td></tr><tr class="ai"><td class="ln">89</td><td class="src">fix15 complementary_angle ;  <span class="cm">// fused angle estimate</span></td></tr><tr class="ai"><td class="ln">90</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">91</td><td class="src"><span class="cm">// Circular display buffers for the angle estimates</span></td></tr><tr class="ai"><td class="ln">92</td><td class="src">fix15 accel_angle_buf[PLOT_WIDTH] ;</td></tr><tr class="ai"><td class="ln">93</td><td class="src">fix15 comp_angle_buf[PLOT_WIDTH] ;</td></tr><tr class="ai"><td class="ln">94</td><td class="src"><span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">95</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">96</td><td class="src"><span class="cm">// ===== ADDED: circular display buffer for the fan duty cycle (PID output) =====</span></td></tr><tr class="ai"><td class="ln">97</td><td class="src">int duty_buf[PLOT_WIDTH] ;</td></tr><tr class="ai"><td class="ln">98</td><td class="src"><span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">99</td><td class="src">&#8203;</td></tr><tr><td class="ln">100</td><td class="src"><span class="cm">// Pointer to head of buffer</span></td></tr><tr><td class="ln">101</td><td class="src">volatile int head = 0 ;</td></tr><tr><td class="ln">102</td><td class="src">&#8203;</td></tr><tr><td class="ln">103</td><td class="src"><span class="cm">// character array</span></td></tr><tr class="ai"><td class="ln">104</td><td class="src">char screentext[80];   <span class="cm">// CHANGED: was 40, controller readout line is longer</span></td></tr><tr><td class="ln">105</td><td class="src">&#8203;</td></tr><tr><td class="ln">106</td><td class="src"><span class="cm">// draw speed</span></td></tr><tr><td class="ln">107</td><td class="src">volatile int threshold = 10 ;</td></tr><tr><td class="ln">108</td><td class="src">&#8203;</td></tr><tr><td class="ln">109</td><td class="src"><span class="cm">// Some macros for max/min/abs</span></td></tr><tr><td class="ln">110</td><td class="src"><span class="pp">#define min(a,b) ((a&lt;b) ? a:b)</span></td></tr><tr><td class="ln">111</td><td class="src"><span class="pp">#define max(a,b) ((a&lt;b) ? b:a)</span></td></tr><tr><td class="ln">112</td><td class="src"><span class="pp">#define abs(a) ((a&gt;0) ? a:-a)</span></td></tr><tr><td class="ln">113</td><td class="src">&#8203;</td></tr><tr><td class="ln">114</td><td class="src"><span class="cm">// semaphore</span></td></tr><tr><td class="ln">115</td><td class="src">static struct pt_sem vga_semaphore ;</td></tr><tr><td class="ln">116</td><td class="src">&#8203;</td></tr><tr><td class="ln">117</td><td class="src"><span class="cm">// Angle player button</span></td></tr><tr><td class="ln">118</td><td class="src"><span class="pp">#define BUTTON_PIN 15</span></td></tr><tr><td class="ln">119</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">120</td><td class="src"><span class="cm">// ===== ADDED: button angle sequence =====</span></td></tr><tr class="ai"><td class="ln">121</td><td class="src"><span class="cm">// Hold button: target -90, fan off. Release: closed loop, target 0 -&gt; 30 (t=5s) -&gt; -30 (t=10s) -&gt; 0 (t=15s)</span></td></tr><tr class="ai"><td class="ln">122</td><td class="src">#define DEBOUNCE_MS 20                          <span class="cm">// button must be stable this long to count</span></td></tr><tr class="ai"><td class="ln">123</td><td class="src">int btn_held = 0 ;                              <span class="cm">// debounced button state (1 = held)</span></td></tr><tr class="ai"><td class="ln">124</td><td class="src">int btn_count = 0 ;                             <span class="cm">// ms the raw reading has disagreed with btn_held</span></td></tr><tr class="ai"><td class="ln">125</td><td class="src">int seq_active = 0 ;                            <span class="cm">// 1 = running the timed angle sequence</span></td></tr><tr class="ai"><td class="ln">126</td><td class="src">int seq_ms = 0 ;                                <span class="cm">// ms since the button was released</span></td></tr><tr class="ai"><td class="ln">127</td><td class="src"><span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">128</td><td class="src">&#8203;</td></tr><tr><td class="ln">129</td><td class="src"><span class="cm">// Some paramters for PWM</span></td></tr><tr><td class="ln">130</td><td class="src"><span class="pp">#define WRAPVAL 6000</span></td></tr><tr><td class="ln">131</td><td class="src"><span class="pp">#define CLKDIV  25.0</span></td></tr><tr class="ai"><td class="ln">132</td><td class="src"><span class="cm">// ADDED: max allowed fan duty cycle (closed loop and manual &#x27;p&#x27;), below WRAPVAL</span></td></tr><tr><td class="ln">133</td><td class="src"><span class="pp">#define DUTY_MAX 6000</span></td></tr><tr class="ai"><td class="ln">134</td><td class="src"><span class="cm">// ADDED: max duty increase per 1 ms sample in closed loop (inrush/overcurrent protection).</span></td></tr><tr><td class="ln">135</td><td class="src"><span class="cm">// 20 counts/ms -&gt; 0 to DUTY_MAX in 300 ms. Decreases are not limited.</span></td></tr><tr><td class="ln">136</td><td class="src"><span class="pp">#define DUTY_SLEW 20</span></td></tr><tr><td class="ln">137</td><td class="src"><span class="cm">// GPIO we&#x27;re using for PWM</span></td></tr><tr><td class="ln">138</td><td class="src"><span class="pp">#define PWM_OUT 4</span></td></tr><tr><td class="ln">139</td><td class="src">uint slice_num ;</td></tr><tr><td class="ln">140</td><td class="src"><span class="cm">// PWM duty cycle</span></td></tr><tr><td class="ln">141</td><td class="src">volatile int control ;</td></tr><tr><td class="ln">142</td><td class="src">volatile int old_control ;</td></tr><tr><td class="ln">143</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">144</td><td class="src"><span class="cm">// ===== ADDED: proportional controller =====</span></td></tr><tr class="ai"><td class="ln">145</td><td class="src">volatile int closed_loop = 0 ;                  <span class="cm">// 0 = manual duty (&#x27;p&#x27;), 1 = P control</span></td></tr><tr class="ai"><td class="ln">146</td><td class="src">volatile fix15 desired_angle = 0 ;              <span class="cm">// target angle (degrees, 15.16)</span></td></tr><tr class="ai"><td class="ln">147</td><td class="src">volatile fix15 Kp = int2fix15(0) ;            <span class="cm">// gain (duty counts per degree, 15.16)</span></td></tr><tr class="ai"><td class="ln">148</td><td class="src">fix15 angle_error ;                             <span class="cm">// desired - measured (degrees, 15.16)</span></td></tr><tr class="ai"><td class="ln">149</td><td class="src"><span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">150</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">151</td><td class="src"><span class="cm">// ===== ADDED: derivative control =====</span></td></tr><tr class="ai"><td class="ln">152</td><td class="src">volatile fix15 Kd = int2fix15(0) ;              <span class="cm">// gain (duty counts per deg/s, 15.16), 0 = off</span></td></tr><tr class="ai"><td class="ln">153</td><td class="src"><span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">154</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">155</td><td class="src"><span class="cm">// ===== ADDED: integral control =====</span></td></tr><tr class="ai"><td class="ln">156</td><td class="src">volatile fix15 Ki = int2fix15(0) ;              <span class="cm">// gain (duty counts per deg, per 1 ms sample, 15.16), 0 = off</span></td></tr><tr class="ai"><td class="ln">157</td><td class="src">volatile int i_max = 10000 ;                     <span class="cm">// anti-windup cap on the I term (duty counts)</span></td></tr><tr class="ai"><td class="ln">158</td><td class="src">volatile fix15 i_term = 0 ;                     <span class="cm">// accumulated Ki*error (duty counts, 15.16)</span></td></tr><tr class="ai"><td class="ln">159</td><td class="src"><span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">160</td><td class="src">&#8203;</td></tr><tr><td class="ln">161</td><td class="src">&#8203;</td></tr><tr><td class="ln">162</td><td class="src">void drawAxes() {</td></tr><tr><td class="ln">163</td><td class="src">    <span class="cm">// Draw the static aspects of the display</span></td></tr><tr><td class="ln">164</td><td class="src">    setTextSize(1) ;</td></tr><tr><td class="ln">165</td><td class="src">    setTextColor(WHITE);</td></tr><tr><td class="ln">166</td><td class="src">&#8203;</td></tr><tr><td class="ln">167</td><td class="src">    <span class="cm">// Draw bottom plot</span></td></tr><tr><td class="ln">168</td><td class="src">    drawHLine(75, 430, 5, CYAN) ;</td></tr><tr><td class="ln">169</td><td class="src">    drawHLine(75, 355, 5, CYAN) ;</td></tr><tr><td class="ln">170</td><td class="src">    drawHLine(75, 280, 5, CYAN) ;</td></tr><tr><td class="ln">171</td><td class="src">    drawVLine(80, 280, 150, CYAN) ;</td></tr><tr class="ai"><td class="ln">172</td><td class="src">    <span class="cm">// CHANGED: labels are now duty cycle (0 to DUTY_MAX), were accel (-2 to +2 g)</span></td></tr><tr><td class="ln">173</td><td class="src">    sprintf(screentext, &quot;%d&quot;, DUTY_MAX/2) ;</td></tr><tr><td class="ln">174</td><td class="src">    setCursor(45, 350) ;</td></tr><tr><td class="ln">175</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">176</td><td class="src">    sprintf(screentext, &quot;%d&quot;, DUTY_MAX) ;</td></tr><tr><td class="ln">177</td><td class="src">    setCursor(45, 280) ;</td></tr><tr><td class="ln">178</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">179</td><td class="src">    sprintf(screentext, &quot;0&quot;) ;</td></tr><tr><td class="ln">180</td><td class="src">    setCursor(50, 425) ;</td></tr><tr><td class="ln">181</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">182</td><td class="src">    sprintf(screentext, &quot;Duty&quot;) ;</td></tr><tr><td class="ln">183</td><td class="src">    setCursor(45, 300) ;</td></tr><tr><td class="ln">184</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">185</td><td class="src">&#8203;</td></tr><tr><td class="ln">186</td><td class="src">    <span class="cm">// Draw top plot</span></td></tr><tr><td class="ln">187</td><td class="src">    drawHLine(75, 230, 5, CYAN) ;</td></tr><tr><td class="ln">188</td><td class="src">    drawHLine(75, 155, 5, CYAN) ;</td></tr><tr><td class="ln">189</td><td class="src">    drawHLine(75, 80, 5, CYAN) ;</td></tr><tr><td class="ln">190</td><td class="src">    drawVLine(80, 80, 150, CYAN) ;</td></tr><tr><td class="ln">191</td><td class="src">    sprintf(screentext, &quot;0&quot;) ;</td></tr><tr><td class="ln">192</td><td class="src">    setCursor(50, 150) ;</td></tr><tr><td class="ln">193</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">194</td><td class="src">    sprintf(screentext, &quot;+90&quot;) ;</td></tr><tr><td class="ln">195</td><td class="src">    setCursor(45, 75) ;</td></tr><tr><td class="ln">196</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">197</td><td class="src">    sprintf(screentext, &quot;-90&quot;) ;</td></tr><tr><td class="ln">198</td><td class="src">    setCursor(45, 225) ;</td></tr><tr><td class="ln">199</td><td class="src">    writeString(screentext) ;</td></tr><tr><td class="ln">200</td><td class="src">}</td></tr><tr><td class="ln">201</td><td class="src">&#8203;</td></tr><tr><td class="ln">202</td><td class="src">volatile int throttle = 10 ;</td></tr><tr><td class="ln">203</td><td class="src">&#8203;</td></tr><tr><td class="ln">204</td><td class="src"><span class="cm">// Interrupt service routine</span></td></tr><tr><td class="ln">205</td><td class="src">void on_pwm_wrap() {</td></tr><tr><td class="ln">206</td><td class="src">&#8203;</td></tr><tr><td class="ln">207</td><td class="src">    <span class="cm">// Clear the interrupt flag that brought us here</span></td></tr><tr><td class="ln">208</td><td class="src">    pwm_clear_irq(pwm_gpio_to_slice_num(5));</td></tr><tr><td class="ln">209</td><td class="src">    gpio_put(14, !gpio_get(14)) ;</td></tr><tr><td class="ln">210</td><td class="src">&#8203;</td></tr><tr><td class="ln">211</td><td class="src">    <span class="cm">// Read the IMU</span></td></tr><tr><td class="ln">212</td><td class="src">    <span class="cm">// NOTE! This is in 15.16 fixed point. Accel in g&#x27;s, gyro in deg/s</span></td></tr><tr><td class="ln">213</td><td class="src">    <span class="cm">// If you want these values in floating point, call fix2float15() on</span></td></tr><tr><td class="ln">214</td><td class="src">    <span class="cm">// the raw measurements.</span></td></tr><tr><td class="ln">215</td><td class="src">    mpu6050_read_raw(acceleration, gyro);</td></tr><tr><td class="ln">216</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">217</td><td class="src">    <span class="cm">// ===== ADDED: low pass filter on accelerometer (first-order IIR, alpha = 1/16) =====</span></td></tr><tr class="ai"><td class="ln">218</td><td class="src">    filtered_ax = filtered_ax + ((acceleration[0] - filtered_ax) &gt;&gt; 4);</td></tr><tr class="ai"><td class="ln">219</td><td class="src">    filtered_az = filtered_az + ((acceleration[2] - filtered_az) &gt;&gt; 4);</td></tr><tr class="ai"><td class="ln">220</td><td class="src">    <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">221</td><td class="src">&#8203;</td></tr><tr><td class="ln">222</td><td class="src">    <span class="cm">// Accelerometer angle (degrees - 15.16 fixed point)</span></td></tr><tr><td class="ln">223</td><td class="src">    <span class="cm">// NO SMALL ANGLE APPROXIMATION --&gt; ADDED LOW PASS FILTER</span></td></tr><tr><td class="ln">224</td><td class="src">    <span class="cm">// IMU rotates about +y axis</span></td></tr><tr class="ai"><td class="ln">225</td><td class="src">    <span class="cm">// FIXED: removed +PI so flat (arm horizontal) = 0 deg, range -180 to +180</span></td></tr><tr><td class="ln">226</td><td class="src">    accel_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);</td></tr><tr><td class="ln">227</td><td class="src">&#8203;</td></tr><tr><td class="ln">228</td><td class="src">    <span class="cm">// Gyro angle delta (measurement times timestep) (15.16 fixed point)</span></td></tr><tr><td class="ln">229</td><td class="src">    <span class="cm">// gyro y for rotation about +y axis</span></td></tr><tr><td class="ln">230</td><td class="src">    gyro_angle_delta = multfix15(gyro[1], zeropt001) ;</td></tr><tr><td class="ln">231</td><td class="src">&#8203;</td></tr><tr><td class="ln">232</td><td class="src">    <span class="cm">// Complementary angle (degrees - 15.16 fixed point)</span></td></tr><tr><td class="ln">233</td><td class="src">    <span class="cm">// gyro and accel share the same sign convention so + instead between (comp ang + gyro ang)</span></td></tr><tr><td class="ln">234</td><td class="src">    complementary_angle = multfix15(complementary_angle + gyro_angle_delta, zeropt999) + multfix15(accel_angle, zeropt001);</td></tr><tr><td class="ln">235</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">236</td><td class="src">    <span class="cm">// ===== ADDED: button angle sequence (ISR runs at ~1 kHz, so one call = 1 ms) =====</span></td></tr><tr class="ai"><td class="ln">237</td><td class="src">    <span class="cm">// Button is active low (pull-up). Debounce: accept a new state only after it holds DEBOUNCE_MS.</span></td></tr><tr class="ai"><td class="ln">238</td><td class="src">    int pressed = !gpio_get(BUTTON_PIN) ;</td></tr><tr class="ai"><td class="ln">239</td><td class="src">    if (pressed != btn_held) {</td></tr><tr class="ai"><td class="ln">240</td><td class="src">        if (++btn_count &gt;= DEBOUNCE_MS) {</td></tr><tr class="ai"><td class="ln">241</td><td class="src">            printf(&quot;Button %s\n&quot;, pressed ? &quot;pressed&quot; : &quot;released&quot;);</td></tr><tr class="ai"><td class="ln">242</td><td class="src">            btn_held = pressed ;</td></tr><tr class="ai"><td class="ln">243</td><td class="src">            btn_count = 0 ;</td></tr><tr class="ai"><td class="ln">244</td><td class="src">            <span class="cm">// Released: start the sequence under closed loop control</span></td></tr><tr class="ai"><td class="ln">245</td><td class="src">            if (!btn_held) {</td></tr><tr class="ai"><td class="ln">246</td><td class="src">                seq_active = 1 ;</td></tr><tr class="ai"><td class="ln">247</td><td class="src">                seq_ms = 0 ;</td></tr><tr class="ai"><td class="ln">248</td><td class="src">                closed_loop = 1 ;</td></tr><tr class="ai"><td class="ln">249</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">250</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">251</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">252</td><td class="src">    else {</td></tr><tr class="ai"><td class="ln">253</td><td class="src">        btn_count = 0 ;</td></tr><tr class="ai"><td class="ln">254</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">255</td><td class="src">    if (btn_held) {</td></tr><tr class="ai"><td class="ln">256</td><td class="src">        <span class="cm">// Held: arm rests at -90, fan off (closed_loop = 0 also clears the I term below)</span></td></tr><tr class="ai"><td class="ln">257</td><td class="src">        closed_loop = 0 ;</td></tr><tr class="ai"><td class="ln">258</td><td class="src">        control = 0 ;</td></tr><tr class="ai"><td class="ln">259</td><td class="src">        desired_angle = int2fix15(-90) ;</td></tr><tr class="ai"><td class="ln">260</td><td class="src">        seq_active = 0 ;</td></tr><tr class="ai"><td class="ln">261</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">262</td><td class="src">    else if (seq_active) {</td></tr><tr class="ai"><td class="ln">263</td><td class="src">        <span class="cm">// Only write the target at each step so serial &#x27;a&#x27; can still override in between</span></td></tr><tr class="ai"><td class="ln">264</td><td class="src">        if      (seq_ms == 0)     desired_angle = int2fix15(0) ;</td></tr><tr class="ai"><td class="ln">265</td><td class="src">        else if (seq_ms == 5000)  desired_angle = int2fix15(30) ;</td></tr><tr class="ai"><td class="ln">266</td><td class="src">        else if (seq_ms == 10000) desired_angle = int2fix15(-30) ;</td></tr><tr class="ai"><td class="ln">267</td><td class="src">        else if (seq_ms == 15000) {</td></tr><tr class="ai"><td class="ln">268</td><td class="src">            desired_angle = int2fix15(0) ;</td></tr><tr class="ai"><td class="ln">269</td><td class="src">            seq_active = 0 ;   <span class="cm">// sequence done, stay at 0</span></td></tr><tr class="ai"><td class="ln">270</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">271</td><td class="src">        seq_ms++ ;</td></tr><tr class="ai"><td class="ln">272</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">273</td><td class="src">    <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">274</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">275</td><td class="src">    <span class="cm">// ===== ADDED: proportional control =====</span></td></tr><tr class="ai"><td class="ln">276</td><td class="src">    <span class="cm">// ===== CHANGED: now PID control (derivative and integral terms added below) =====</span></td></tr><tr class="ai"><td class="ln">277</td><td class="src">    if (closed_loop) {</td></tr><tr class="ai"><td class="ln">278</td><td class="src">        <span class="cm">// Positive error = arm is below the target, so more thrust is needed</span></td></tr><tr class="ai"><td class="ln">279</td><td class="src">        angle_error = desired_angle - complementary_angle ;</td></tr><tr class="ai"><td class="ln">280</td><td class="src">        <span class="cm">// Kp * error in 64 bits (avoids overflow), &gt;&gt;32 converts 15.16 * 15.16 to an integer duty cycle</span></td></tr><tr class="ai"><td class="ln">281</td><td class="src">        long long p_term = ((long long)Kp) * ((long long)angle_error) ;</td></tr><tr class="ai"><td class="ln">282</td><td class="src">        <span class="cm">// ===== ADDED: derivative term =====</span></td></tr><tr class="ai"><td class="ln">283</td><td class="src">        <span class="cm">// d(error)/dt = -d(angle)/dt = -gyro[1] (gyro y is the arm&#x27;s angular rate in deg/s).</span></td></tr><tr class="ai"><td class="ln">284</td><td class="src">        <span class="cm">// Using the gyro directly avoids the noise of differencing the angle estimate.</span></td></tr><tr class="ai"><td class="ln">285</td><td class="src">        <span class="cm">// Opposes motion: arm rising fast -&gt; less thrust, arm falling fast -&gt; more thrust.</span></td></tr><tr class="ai"><td class="ln">286</td><td class="src">        long long d_term = ((long long)Kd) * ((long long)gyro[1]) ;</td></tr><tr class="ai"><td class="ln">287</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">288</td><td class="src">        <span class="cm">// ===== ADDED: integral term =====</span></td></tr><tr class="ai"><td class="ln">289</td><td class="src">        <span class="cm">// Accumulate Ki*error every sample (rather than summing error and scaling later),</span></td></tr><tr class="ai"><td class="ln">290</td><td class="src">        <span class="cm">// so the sum is already in duty counts and can&#x27;t overflow 15.16, and changing Ki</span></td></tr><tr class="ai"><td class="ln">291</td><td class="src">        <span class="cm">// doesn&#x27;t make the output jump. At steady state P and D are ~0, so the I term</span></td></tr><tr class="ai"><td class="ln">292</td><td class="src">        <span class="cm">// alone supplies the duty that holds the arm up against gravity.</span></td></tr><tr class="ai"><td class="ln">293</td><td class="src">        fix15 i_step = multfix15(Ki, angle_error) ;</td></tr><tr class="ai"><td class="ln">294</td><td class="src">        int pd = (int)((p_term - d_term) &gt;&gt; 32) ;</td></tr><tr class="ai"><td class="ln">295</td><td class="src">        <span class="cm">// ===== ADDED: overcurrent protection =====</span></td></tr><tr class="ai"><td class="ln">296</td><td class="src">        <span class="cm">// Highest duty allowed this sample: DUTY_MAX, and at most DUTY_SLEW above last sample,</span></td></tr><tr class="ai"><td class="ln">297</td><td class="src">        <span class="cm">// so a big setpoint jump ramps the motor up instead of stepping it (limits inrush current)</span></td></tr><tr class="ai"><td class="ln">298</td><td class="src">        int u_limit = control + DUTY_SLEW ;</td></tr><tr class="ai"><td class="ln">299</td><td class="src">        if (u_limit &gt; DUTY_MAX) u_limit = DUTY_MAX ;</td></tr><tr class="ai"><td class="ln">300</td><td class="src">        <span class="cm">// Conditional integration: don&#x27;t grow the I term while the output is already pinned at</span></td></tr><tr class="ai"><td class="ln">301</td><td class="src">        <span class="cm">// the limit, otherwise it winds up during the ramp/stall and overshoots afterwards</span></td></tr><tr class="ai"><td class="ln">302</td><td class="src">        if (!(i_step &gt; 0 &amp;&amp; pd + fix2int15(i_term) &gt;= u_limit)) i_term += i_step ;</td></tr><tr class="ai"><td class="ln">303</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">304</td><td class="src">        <span class="cm">// Anti-windup: cap at i_max (set it a bit above the duty that holds the arm at the</span></td></tr><tr class="ai"><td class="ln">305</td><td class="src">        <span class="cm">// target). Floor at 0 because the fan can&#x27;t pull down, so negative I only adds lag.</span></td></tr><tr class="ai"><td class="ln">306</td><td class="src">        if (i_term &gt; int2fix15(i_max)) i_term = int2fix15(i_max) ;</td></tr><tr class="ai"><td class="ln">307</td><td class="src">        if (i_term &lt; 0) i_term = 0 ;</td></tr><tr class="ai"><td class="ln">308</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">309</td><td class="src">        int u = pd + fix2int15(i_term) ;   <span class="cm">// CHANGED: was Kp * error only, then P - D</span></td></tr><tr class="ai"><td class="ln">310</td><td class="src">        <span class="cm">// The fan can only push one way, so clamp to the valid duty range</span></td></tr><tr class="ai"><td class="ln">311</td><td class="src">        if (u &lt; 0) u = 0 ;</td></tr><tr class="ai"><td class="ln">312</td><td class="src">        if (u &gt; u_limit) u = u_limit ;   <span class="cm">// CHANGED: was DUTY_MAX (and WRAPVAL before that), now also slew limited</span></td></tr><tr class="ai"><td class="ln">313</td><td class="src">        control = u ;</td></tr><tr class="ai"><td class="ln">314</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">315</td><td class="src">    <span class="cm">// ===== ADDED: clear the integrator whenever the controller is off =====</span></td></tr><tr class="ai"><td class="ln">316</td><td class="src">    <span class="cm">// so it starts from 0 the next time closed loop is turned on</span></td></tr><tr class="ai"><td class="ln">317</td><td class="src">    else {</td></tr><tr class="ai"><td class="ln">318</td><td class="src">        i_term = 0 ;</td></tr><tr class="ai"><td class="ln">319</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">320</td><td class="src">    <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">321</td><td class="src">    <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">322</td><td class="src">&#8203;</td></tr><tr><td class="ln">323</td><td class="src">    <span class="cm">// Update fan duty cycle</span></td></tr><tr><td class="ln">324</td><td class="src">    if (control!=old_control) {</td></tr><tr><td class="ln">325</td><td class="src">        old_control = control ;</td></tr><tr><td class="ln">326</td><td class="src">        pwm_set_chan_level(slice_num, PWM_CHAN_A, control);</td></tr><tr><td class="ln">327</td><td class="src">    }</td></tr><tr><td class="ln">328</td><td class="src">&#8203;</td></tr><tr><td class="ln">329</td><td class="src">    <span class="cm">// Increment drawspeed controller</span></td></tr><tr><td class="ln">330</td><td class="src">    throttle += 1 ;</td></tr><tr><td class="ln">331</td><td class="src">    <span class="cm">// Maintain a circular buffer for display</span></td></tr><tr><td class="ln">332</td><td class="src">    if ((throttle &gt;= threshold)) { </td></tr><tr><td class="ln">333</td><td class="src">        <span class="cm">// Zero drawspeed controller</span></td></tr><tr><td class="ln">334</td><td class="src">        throttle = 0 ;</td></tr><tr><td class="ln">335</td><td class="src">&#8203;</td></tr><tr><td class="ln">336</td><td class="src">        <span class="cm">// Replace oldest data in accel arrays with new sample</span></td></tr><tr><td class="ln">337</td><td class="src">        ax[head] = acceleration[0] ;</td></tr><tr><td class="ln">338</td><td class="src">        ay[head] = acceleration[1] ;</td></tr><tr><td class="ln">339</td><td class="src">        az[head] = acceleration[2] ;</td></tr><tr><td class="ln">340</td><td class="src">&#8203;</td></tr><tr><td class="ln">341</td><td class="src">        <span class="cm">// Replace oldest data in gyro arrays with new sample</span></td></tr><tr><td class="ln">342</td><td class="src">        gx[head] = gyro[0] ;</td></tr><tr><td class="ln">343</td><td class="src">        gy[head] = gyro[1] ;</td></tr><tr><td class="ln">344</td><td class="src">        gz[head] = gyro[2] ;</td></tr><tr><td class="ln">345</td><td class="src">        </td></tr><tr class="ai"><td class="ln">346</td><td class="src">        <span class="cm">// ===== ADDED: store complementary filter angle estimates for display =====</span></td></tr><tr class="ai"><td class="ln">347</td><td class="src">        accel_angle_buf[head] = accel_angle ;</td></tr><tr class="ai"><td class="ln">348</td><td class="src">        comp_angle_buf[head] = complementary_angle ;</td></tr><tr class="ai"><td class="ln">349</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">350</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">351</td><td class="src">        <span class="cm">// ===== ADDED: store fan duty cycle for display =====</span></td></tr><tr class="ai"><td class="ln">352</td><td class="src">        duty_buf[head] = control ;</td></tr><tr class="ai"><td class="ln">353</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">354</td><td class="src">&#8203;</td></tr><tr><td class="ln">355</td><td class="src">        <span class="cm">// Move the pointer to the oldest data</span></td></tr><tr><td class="ln">356</td><td class="src">        head = ((head+1) == PLOT_WIDTH) ? 0 : (head + 1) ;</td></tr><tr><td class="ln">357</td><td class="src">&#8203;</td></tr><tr><td class="ln">358</td><td class="src">    }</td></tr><tr><td class="ln">359</td><td class="src">}</td></tr><tr><td class="ln">360</td><td class="src">&#8203;</td></tr><tr><td class="ln">361</td><td class="src">static PT_THREAD (protothread_draw(struct pt *pt))</td></tr><tr><td class="ln">362</td><td class="src">{</td></tr><tr><td class="ln">363</td><td class="src">    PT_BEGIN(pt) ;</td></tr><tr><td class="ln">364</td><td class="src">&#8203;</td></tr><tr><td class="ln">365</td><td class="src">    static int start ;</td></tr><tr><td class="ln">366</td><td class="src">    static int i ;</td></tr><tr><td class="ln">367</td><td class="src">&#8203;</td></tr><tr><td class="ln">368</td><td class="src">    <span class="cm">// Draw axes</span></td></tr><tr><td class="ln">369</td><td class="src">    drawAxes() ;</td></tr><tr><td class="ln">370</td><td class="src">    <span class="cm">// Copy to other buffer</span></td></tr><tr><td class="ln">371</td><td class="src">    copy_buffer_to_other() ;</td></tr><tr><td class="ln">372</td><td class="src">&#8203;</td></tr><tr><td class="ln">373</td><td class="src">    while(1) {</td></tr><tr><td class="ln">374</td><td class="src">        <span class="cm">// Wait for a buffer swap</span></td></tr><tr><td class="ln">375</td><td class="src">        PT_YIELD_UNTIL(pt, draw_start_signal()) ;</td></tr><tr class="ai"><td class="ln">376</td><td class="src">        <span class="cm">// REMOVED: gpio_put(15, ...) debug toggle, GPIO 15 is now the button</span></td></tr><tr><td class="ln">377</td><td class="src">        </td></tr><tr><td class="ln">378</td><td class="src">        <span class="cm">// Clear the buffer, draw the axes</span></td></tr><tr><td class="ln">379</td><td class="src">        clearLowFrame(0, BLACK) ;</td></tr><tr><td class="ln">380</td><td class="src">        drawAxes() ;</td></tr><tr><td class="ln">381</td><td class="src">&#8203;</td></tr><tr><td class="ln">382</td><td class="src">        <span class="cm">// Plot data oldest--&gt;newest</span></td></tr><tr><td class="ln">383</td><td class="src">        start = head ;</td></tr><tr><td class="ln">384</td><td class="src">        for (i = 0; i &lt; PLOT_WIDTH; i++) {</td></tr><tr class="ai"><td class="ln">385</td><td class="src">            <span class="cm">// ===== CHANGED: bottom plot is now duty cycle (was ax/ay/az) =====</span></td></tr><tr class="ai"><td class="ln">386</td><td class="src">            <span class="cm">// 0 duty at the bottom of the plot, DUTY_MAX at the top</span></td></tr><tr class="ai"><td class="ln">387</td><td class="src">            drawPixel(LEFT_EDGE + i, (BOTTOM_PLOT_BOTTOM -</td></tr><tr class="ai"><td class="ln">388</td><td class="src">                (int)(NEW_RANGE*((float)duty_buf[start]/DUTY_MAX))), ORANGE) ;</td></tr><tr class="ai"><td class="ln">389</td><td class="src">            <span class="cm">// ===== END CHANGED =====</span></td></tr><tr><td class="ln">390</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">391</td><td class="src">            <span class="cm">// ===== CHANGED: top plot shows only the actual (complementary) angle =====</span></td></tr><tr class="ai"><td class="ln">392</td><td class="src">            <span class="cm">// (gyro x/y/z and accel-only angle traces removed; target line drawn below)</span></td></tr><tr class="ai"><td class="ln">393</td><td class="src">            <span class="cm">// Angles rotate about +y axis within the range ~[-90, 90] so 0 degree is when the IMU is parallel to the floor</span></td></tr><tr class="ai"><td class="ln">394</td><td class="src">            drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -</td></tr><tr class="ai"><td class="ln">395</td><td class="src">                (int)(NEW_RANGE*((float)((fix2float15(comp_angle_buf[start]))-ANGLE_MIN)/ANGLE_RANGE))), YELLOW) ;</td></tr><tr class="ai"><td class="ln">396</td><td class="src">            <span class="cm">// ===== END CHANGED =====</span></td></tr><tr><td class="ln">397</td><td class="src">&#8203;</td></tr><tr><td class="ln">398</td><td class="src">            start = ((start+1)==PLOT_WIDTH) ? 0 : (start+1) ;</td></tr><tr><td class="ln">399</td><td class="src">        }</td></tr><tr><td class="ln">400</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">401</td><td class="src">        <span class="cm">// ===== ADDED: target angle line on top plot =====</span></td></tr><tr class="ai"><td class="ln">402</td><td class="src">        drawHLine(LEFT_EDGE, (TOP_PLOT_BOTTOM -</td></tr><tr class="ai"><td class="ln">403</td><td class="src">            (int)(NEW_RANGE*((float)((fix2float15(desired_angle))-ANGLE_MIN)/ANGLE_RANGE))), PLOT_WIDTH, LIGHT_BLUE) ;</td></tr><tr class="ai"><td class="ln">404</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">405</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">406</td><td class="src">        <span class="cm">// ===== ADDED: numeric readout of angle estimates =====</span></td></tr><tr class="ai"><td class="ln">407</td><td class="src">        setTextSize(2) ;</td></tr><tr class="ai"><td class="ln">408</td><td class="src">        setTextColor(MAGENTA) ;</td></tr><tr class="ai"><td class="ln">409</td><td class="src">        setCursor(85, 20) ;</td></tr><tr class="ai"><td class="ln">410</td><td class="src">        sprintf(screentext, &quot;Accel Ang: %6.1f&quot;, fix2float15(accel_angle)) ;</td></tr><tr class="ai"><td class="ln">411</td><td class="src">        writeString(screentext) ;</td></tr><tr class="ai"><td class="ln">412</td><td class="src">        setTextColor(YELLOW) ;</td></tr><tr class="ai"><td class="ln">413</td><td class="src">        setCursor(330, 20) ;</td></tr><tr class="ai"><td class="ln">414</td><td class="src">        sprintf(screentext, &quot;Comp Ang: %6.1f&quot;, fix2float15(complementary_angle)) ;</td></tr><tr class="ai"><td class="ln">415</td><td class="src">        writeString(screentext) ;</td></tr><tr class="ai"><td class="ln">416</td><td class="src">        setTextSize(1) ;</td></tr><tr class="ai"><td class="ln">417</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">418</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">419</td><td class="src">        <span class="cm">// ===== ADDED: controller readout =====</span></td></tr><tr class="ai"><td class="ln">420</td><td class="src">        setTextColor(LIGHT_BLUE) ;</td></tr><tr class="ai"><td class="ln">421</td><td class="src">        setCursor(85, 45) ;</td></tr><tr class="ai"><td class="ln">422</td><td class="src">        <span class="cm">// CHANGED: added Kd to the readout</span></td></tr><tr class="ai"><td class="ln">423</td><td class="src">        sprintf(screentext, &quot;Target: %6.1f  Kp: %6.1f  Kd: %6.1f  Duty: %4d  %s&quot;,</td></tr><tr class="ai"><td class="ln">424</td><td class="src">            fix2float15(desired_angle), fix2float15(Kp), fix2float15(Kd), control, closed_loop ? &quot;CLOSED LOOP&quot; : &quot;MANUAL&quot;) ;</td></tr><tr class="ai"><td class="ln">425</td><td class="src">        writeString(screentext) ;</td></tr><tr class="ai"><td class="ln">426</td><td class="src">        <span class="cm">// ===== ADDED: integral readout (second line) =====</span></td></tr><tr class="ai"><td class="ln">427</td><td class="src">        setCursor(85, 57) ;</td></tr><tr class="ai"><td class="ln">428</td><td class="src">        sprintf(screentext, &quot;Ki: %7.4f  I max: %4d  I term: %6.1f&quot;,</td></tr><tr class="ai"><td class="ln">429</td><td class="src">            fix2float15(Ki), i_max, fix2float15(i_term)) ;</td></tr><tr class="ai"><td class="ln">430</td><td class="src">        writeString(screentext) ;</td></tr><tr class="ai"><td class="ln">431</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">432</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">433</td><td class="src">    }</td></tr><tr><td class="ln">434</td><td class="src">&#8203;</td></tr><tr><td class="ln">435</td><td class="src">    PT_END(pt) ;</td></tr><tr><td class="ln">436</td><td class="src">}</td></tr><tr><td class="ln">437</td><td class="src">&#8203;</td></tr><tr><td class="ln">438</td><td class="src"><span class="cm">// User input thread. User can change draw speed</span></td></tr><tr><td class="ln">439</td><td class="src">static PT_THREAD (protothread_serial(struct pt *pt))</td></tr><tr><td class="ln">440</td><td class="src">{</td></tr><tr><td class="ln">441</td><td class="src">    PT_BEGIN(pt) ;</td></tr><tr><td class="ln">442</td><td class="src">    static char classifier ;</td></tr><tr><td class="ln">443</td><td class="src">    static int test_in ;</td></tr><tr><td class="ln">444</td><td class="src">    static float float_in ;</td></tr><tr><td class="ln">445</td><td class="src">    while(1) {</td></tr><tr><td class="ln">446</td><td class="src">        sprintf(pt_serial_out_buffer, &quot;input a command: &quot;);</td></tr><tr><td class="ln">447</td><td class="src">        serial_write ;</td></tr><tr><td class="ln">448</td><td class="src">        <span class="cm">// spawn a thread to do the non-blocking serial read</span></td></tr><tr><td class="ln">449</td><td class="src">        serial_read ;</td></tr><tr><td class="ln">450</td><td class="src">        <span class="cm">// convert input string to number</span></td></tr><tr><td class="ln">451</td><td class="src">        sscanf(pt_serial_in_buffer,&quot;%c&quot;, &amp;classifier) ;</td></tr><tr><td class="ln">452</td><td class="src">&#8203;</td></tr><tr><td class="ln">453</td><td class="src">        <span class="cm">// num_independents = test_in ;</span></td></tr><tr><td class="ln">454</td><td class="src">        if (classifier==&#x27;t&#x27;) {</td></tr><tr><td class="ln">455</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;timestep: &quot;);</td></tr><tr><td class="ln">456</td><td class="src">            serial_write ;</td></tr><tr><td class="ln">457</td><td class="src">            serial_read ;</td></tr><tr><td class="ln">458</td><td class="src">            <span class="cm">// convert input string to number</span></td></tr><tr><td class="ln">459</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%d&quot;, &amp;test_in) ;</td></tr><tr><td class="ln">460</td><td class="src">            if (test_in &gt; 0) {</td></tr><tr><td class="ln">461</td><td class="src">                threshold = test_in ;</td></tr><tr><td class="ln">462</td><td class="src">            }</td></tr><tr><td class="ln">463</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">464</td><td class="src">        <span class="cm">// ===== ADDED: &#x27;n&#x27; command sets fan duty cycle (from PWM_Demo) =====</span></td></tr><tr class="ai"><td class="ln">465</td><td class="src">        else if (classifier==&#x27;n&#x27;) {</td></tr><tr class="ai"><td class="ln">466</td><td class="src">            <span class="cm">// CHANGED: limit is DUTY_MAX (was WRAPVAL)</span></td></tr><tr class="ai"><td class="ln">467</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;duty cycle (0-%d): &quot;, DUTY_MAX);</td></tr><tr class="ai"><td class="ln">468</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">469</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">470</td><td class="src">            <span class="cm">// convert input string to number</span></td></tr><tr class="ai"><td class="ln">471</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%d&quot;, &amp;test_in) ;</td></tr><tr class="ai"><td class="ln">472</td><td class="src">            if (test_in &gt;= 0 &amp;&amp; test_in &lt;= DUTY_MAX) {</td></tr><tr class="ai"><td class="ln">473</td><td class="src">                closed_loop = 0 ;   <span class="cm">// ADDED: manual duty turns off the controller</span></td></tr><tr class="ai"><td class="ln">474</td><td class="src">                control = test_in ;</td></tr><tr class="ai"><td class="ln">475</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">476</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">477</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">478</td><td class="src">        <span class="cm">// ===== ADDED: controller commands =====</span></td></tr><tr class="ai"><td class="ln">479</td><td class="src">        <span class="cm">// &#x27;a&#x27; = target angle, &#x27;k&#x27; = Kp, &#x27;d&#x27; = Kd, &#x27;i&#x27; = Ki, &#x27;m&#x27; = I term cap, &#x27;c&#x27; = closed loop on (1) / off (0)</span></td></tr><tr class="ai"><td class="ln">480</td><td class="src">        else if (classifier==&#x27;a&#x27;) {</td></tr><tr class="ai"><td class="ln">481</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;target angle (-90 to 90 deg): &quot;);</td></tr><tr class="ai"><td class="ln">482</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">483</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">484</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%f&quot;, &amp;float_in) ;</td></tr><tr class="ai"><td class="ln">485</td><td class="src">            if (float_in &gt;= -90.0f &amp;&amp; float_in &lt;= 90.0f) {</td></tr><tr class="ai"><td class="ln">486</td><td class="src">                desired_angle = float2fix15(float_in) ;</td></tr><tr class="ai"><td class="ln">487</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">488</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">489</td><td class="src">        else if (classifier==&#x27;p&#x27;) {</td></tr><tr class="ai"><td class="ln">490</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;Kp (duty counts per degree): &quot;);</td></tr><tr class="ai"><td class="ln">491</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">492</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">493</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%f&quot;, &amp;float_in) ;</td></tr><tr class="ai"><td class="ln">494</td><td class="src">            if (float_in &gt;= 0.0f &amp;&amp; float_in &lt;= 6000.0f) {</td></tr><tr class="ai"><td class="ln">495</td><td class="src">                Kp = float2fix15(float_in) ;</td></tr><tr class="ai"><td class="ln">496</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">497</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">498</td><td class="src">        <span class="cm">// ===== ADDED: &#x27;d&#x27; command sets Kd =====</span></td></tr><tr class="ai"><td class="ln">499</td><td class="src">        else if (classifier==&#x27;d&#x27;) {</td></tr><tr class="ai"><td class="ln">500</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;Kd (duty counts per deg/s): &quot;);</td></tr><tr class="ai"><td class="ln">501</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">502</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">503</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%f&quot;, &amp;float_in) ;</td></tr><tr class="ai"><td class="ln">504</td><td class="src">            if (float_in &gt;= 0.0f &amp;&amp; float_in &lt;= 6000.0f) {</td></tr><tr class="ai"><td class="ln">505</td><td class="src">                Kd = float2fix15(float_in) ;</td></tr><tr class="ai"><td class="ln">506</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">507</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">508</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">509</td><td class="src">        <span class="cm">// ===== ADDED: &#x27;i&#x27; sets Ki, &#x27;m&#x27; sets the I term cap =====</span></td></tr><tr class="ai"><td class="ln">510</td><td class="src">        else if (classifier==&#x27;i&#x27;) {</td></tr><tr class="ai"><td class="ln">511</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;Ki (duty counts per deg per ms, e.g. 0.03): &quot;);</td></tr><tr class="ai"><td class="ln">512</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">513</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">514</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%f&quot;, &amp;float_in) ;</td></tr><tr class="ai"><td class="ln">515</td><td class="src">            if (float_in &gt;= 0.0f &amp;&amp; float_in &lt;= 100.0f) {</td></tr><tr class="ai"><td class="ln">516</td><td class="src">                Ki = float2fix15(float_in) ;</td></tr><tr class="ai"><td class="ln">517</td><td class="src">                if(float_in == 0.0f) { <span class="cm">// reset the integral term if Ki is set to 0</span></td></tr><tr class="ai"><td class="ln">518</td><td class="src">                    i_term = 0 ;</td></tr><tr class="ai"><td class="ln">519</td><td class="src">                }</td></tr><tr class="ai"><td class="ln">520</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">521</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">522</td><td class="src">        else if (classifier==&#x27;m&#x27;) {</td></tr><tr class="ai"><td class="ln">523</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;I term max (0-%d): &quot;, DUTY_MAX);</td></tr><tr class="ai"><td class="ln">524</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">525</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">526</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%d&quot;, &amp;test_in) ;</td></tr><tr class="ai"><td class="ln">527</td><td class="src">            if (test_in &gt;= 0 &amp;&amp; test_in &lt;= DUTY_MAX) {</td></tr><tr class="ai"><td class="ln">528</td><td class="src">                i_max = test_in ;</td></tr><tr class="ai"><td class="ln">529</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">530</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">531</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr class="ai"><td class="ln">532</td><td class="src">        else if (classifier==&#x27;c&#x27;) {</td></tr><tr class="ai"><td class="ln">533</td><td class="src">            sprintf(pt_serial_out_buffer, &quot;closed loop (1 = on, 0 = off): &quot;);</td></tr><tr class="ai"><td class="ln">534</td><td class="src">            serial_write ;</td></tr><tr class="ai"><td class="ln">535</td><td class="src">            serial_read ;</td></tr><tr class="ai"><td class="ln">536</td><td class="src">            sscanf(pt_serial_in_buffer,&quot;%d&quot;, &amp;test_in) ;</td></tr><tr class="ai"><td class="ln">537</td><td class="src">            if (test_in == 0) {</td></tr><tr class="ai"><td class="ln">538</td><td class="src">                closed_loop = 0 ;</td></tr><tr class="ai"><td class="ln">539</td><td class="src">                control = 0 ;   <span class="cm">// fan off when leaving closed loop</span></td></tr><tr class="ai"><td class="ln">540</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">541</td><td class="src">            else if (test_in == 1) {</td></tr><tr class="ai"><td class="ln">542</td><td class="src">                closed_loop = 1 ;</td></tr><tr class="ai"><td class="ln">543</td><td class="src">            }</td></tr><tr class="ai"><td class="ln">544</td><td class="src">        }</td></tr><tr class="ai"><td class="ln">545</td><td class="src">        <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">546</td><td class="src">    }</td></tr><tr><td class="ln">547</td><td class="src">    PT_END(pt) ;</td></tr><tr><td class="ln">548</td><td class="src">}</td></tr><tr><td class="ln">549</td><td class="src">&#8203;</td></tr><tr><td class="ln">550</td><td class="src"><span class="cm">// Entry point for core 1</span></td></tr><tr><td class="ln">551</td><td class="src">void core1_entry() {</td></tr><tr class="ai"><td class="ln">552</td><td class="src">    <span class="cm">// REMOVED: GPIO 15 debug output init, GPIO 15 is now the button</span></td></tr><tr><td class="ln">553</td><td class="src">    pt_add_thread(protothread_draw) ;</td></tr><tr><td class="ln">554</td><td class="src">    pt_schedule_start ;</td></tr><tr><td class="ln">555</td><td class="src">}</td></tr><tr><td class="ln">556</td><td class="src">&#8203;</td></tr><tr><td class="ln">557</td><td class="src">int main() {</td></tr><tr><td class="ln">558</td><td class="src">&#8203;</td></tr><tr><td class="ln">559</td><td class="src">    <span class="cm">// Overclock</span></td></tr><tr><td class="ln">560</td><td class="src">    set_sys_clock_khz(150000, true) ;</td></tr><tr><td class="ln">561</td><td class="src">&#8203;</td></tr><tr><td class="ln">562</td><td class="src">    <span class="cm">// Initialize stdio</span></td></tr><tr><td class="ln">563</td><td class="src">    stdio_init_all();</td></tr><tr><td class="ln">564</td><td class="src">&#8203;</td></tr><tr><td class="ln">565</td><td class="src">    <span class="cm">// Initialize VGA</span></td></tr><tr><td class="ln">566</td><td class="src">    initVGA() ;</td></tr><tr><td class="ln">567</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">568</td><td class="src">    <span class="cm">// ===== ADDED: I2C bus recovery =====</span></td></tr><tr class="ai"><td class="ln">569</td><td class="src">    <span class="cm">// If the Pico resets mid-transfer, the MPU6050 (which stays powered) can be</span></td></tr><tr class="ai"><td class="ln">570</td><td class="src">    <span class="cm">// left holding SDA low, and mpu6050_reset() then blocks forever. Clocking SCL</span></td></tr><tr class="ai"><td class="ln">571</td><td class="src">    <span class="cm">// up to 9 times lets the IMU finish its byte and release SDA.</span></td></tr><tr class="ai"><td class="ln">572</td><td class="src">    gpio_init(SDA_PIN) ;</td></tr><tr class="ai"><td class="ln">573</td><td class="src">    gpio_init(SCL_PIN) ;</td></tr><tr class="ai"><td class="ln">574</td><td class="src">    gpio_set_dir(SDA_PIN, GPIO_IN) ;</td></tr><tr class="ai"><td class="ln">575</td><td class="src">    gpio_pull_up(SDA_PIN) ;</td></tr><tr class="ai"><td class="ln">576</td><td class="src">    gpio_set_dir(SCL_PIN, GPIO_OUT) ;</td></tr><tr class="ai"><td class="ln">577</td><td class="src">    gpio_put(SCL_PIN, 1) ;</td></tr><tr class="ai"><td class="ln">578</td><td class="src">    sleep_us(10) ;</td></tr><tr class="ai"><td class="ln">579</td><td class="src">    for (int k = 0; k &lt; 9 &amp;&amp; !gpio_get(SDA_PIN); k++) {</td></tr><tr class="ai"><td class="ln">580</td><td class="src">        gpio_put(SCL_PIN, 0) ;</td></tr><tr class="ai"><td class="ln">581</td><td class="src">        sleep_us(5) ;</td></tr><tr class="ai"><td class="ln">582</td><td class="src">        gpio_put(SCL_PIN, 1) ;</td></tr><tr class="ai"><td class="ln">583</td><td class="src">        sleep_us(5) ;</td></tr><tr class="ai"><td class="ln">584</td><td class="src">    }</td></tr><tr class="ai"><td class="ln">585</td><td class="src">    printf(&quot;\n\rI2C bus %s\n\r&quot;, gpio_get(SDA_PIN) ? &quot;free&quot; : &quot;STUCK (SDA held low)&quot;) ;</td></tr><tr class="ai"><td class="ln">586</td><td class="src">    <span class="cm">// ===== END ADDED =====</span></td></tr><tr><td class="ln">587</td><td class="src">&#8203;</td></tr><tr><td class="ln">588</td><td class="src">    <span class="cm">////////////////////////////////////////////////////////////////////////</span></td></tr><tr><td class="ln">589</td><td class="src">    <span class="cm">///////////////////////// I2C CONFIGURATION ////////////////////////////</span></td></tr><tr><td class="ln">590</td><td class="src">    i2c_init(I2C_CHAN, I2C_BAUD_RATE) ;</td></tr><tr><td class="ln">591</td><td class="src">    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C) ;</td></tr><tr><td class="ln">592</td><td class="src">    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C) ;</td></tr><tr><td class="ln">593</td><td class="src">&#8203;</td></tr><tr><td class="ln">594</td><td class="src">    <span class="cm">// MPU6050 initialization</span></td></tr><tr><td class="ln">595</td><td class="src">    mpu6050_reset();</td></tr><tr><td class="ln">596</td><td class="src">    mpu6050_read_raw(acceleration, gyro);</td></tr><tr><td class="ln">597</td><td class="src">&#8203;</td></tr><tr class="ai"><td class="ln">598</td><td class="src">    <span class="cm">// // ===== ADDED: seed filters with first reading so the angle doesn&#x27;t start at 0 =====</span></td></tr><tr class="ai"><td class="ln">599</td><td class="src">    filtered_ax = acceleration[0] ;</td></tr><tr class="ai"><td class="ln">600</td><td class="src">    filtered_az = acceleration[2] ;</td></tr><tr class="ai"><td class="ln">601</td><td class="src">    complementary_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);</td></tr><tr class="ai"><td class="ln">602</td><td class="src">    <span class="cm">// // ===== END ADDED =====</span></td></tr><tr><td class="ln">603</td><td class="src">&#8203;</td></tr><tr><td class="ln">604</td><td class="src">    <span class="cm">////////////////////////////////////////////////////////////////////////</span></td></tr><tr><td class="ln">605</td><td class="src">    <span class="cm">///////////////////////// PWM CONFIGURATION ////////////////////////////</span></td></tr><tr><td class="ln">606</td><td class="src">    <span class="cm">////////////////////////////////////////////////////////////////////////</span></td></tr><tr><td class="ln">607</td><td class="src">    <span class="cm">// Button Pin Initialization (before the ISR starts reading it)</span></td></tr><tr><td class="ln">608</td><td class="src">    gpio_init(BUTTON_PIN) ;</td></tr><tr><td class="ln">609</td><td class="src">    gpio_set_dir(BUTTON_PIN, GPIO_IN) ;</td></tr><tr><td class="ln">610</td><td class="src">    gpio_pull_up(BUTTON_PIN) ;</td></tr><tr><td class="ln">611</td><td class="src">&#8203;</td></tr><tr><td class="ln">612</td><td class="src">    <span class="cm">// Tell GPIO&#x27;s 4,5 that they allocated to the PWM</span></td></tr><tr><td class="ln">613</td><td class="src">    gpio_set_function(5, GPIO_FUNC_PWM);</td></tr><tr class="ai"><td class="ln">614</td><td class="src">    gpio_set_function(PWM_OUT, GPIO_FUNC_PWM);  <span class="cm">// CHANGED: was hardcoded 4, now uses PWM_OUT</span></td></tr><tr><td class="ln">615</td><td class="src">&#8203;</td></tr><tr><td class="ln">616</td><td class="src">    <span class="cm">// Find out which PWM slice is connected to GPIO 5 (it&#x27;s slice 2, same for 4)</span></td></tr><tr><td class="ln">617</td><td class="src">    slice_num = pwm_gpio_to_slice_num(5);</td></tr><tr><td class="ln">618</td><td class="src">&#8203;</td></tr><tr><td class="ln">619</td><td class="src">    <span class="cm">// Mask our slice&#x27;s IRQ output into the PWM block&#x27;s single interrupt line,</span></td></tr><tr><td class="ln">620</td><td class="src">    <span class="cm">// and register our interrupt handler</span></td></tr><tr><td class="ln">621</td><td class="src">    pwm_clear_irq(slice_num);</td></tr><tr><td class="ln">622</td><td class="src">    pwm_set_irq_enabled(slice_num, true);</td></tr><tr><td class="ln">623</td><td class="src">    irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap);</td></tr><tr><td class="ln">624</td><td class="src">    irq_set_enabled(PWM_IRQ_WRAP, true);</td></tr><tr><td class="ln">625</td><td class="src">&#8203;</td></tr><tr><td class="ln">626</td><td class="src">    <span class="cm">// This section configures the period of the PWM signals</span></td></tr><tr><td class="ln">627</td><td class="src">    pwm_set_wrap(slice_num, WRAPVAL) ;</td></tr><tr><td class="ln">628</td><td class="src">    pwm_set_clkdiv(slice_num, CLKDIV) ;</td></tr><tr><td class="ln">629</td><td class="src">&#8203;</td></tr><tr><td class="ln">630</td><td class="src">    <span class="cm">// This sets duty cycle</span></td></tr><tr><td class="ln">631</td><td class="src">    pwm_set_chan_level(slice_num, PWM_CHAN_B, 0);</td></tr><tr><td class="ln">632</td><td class="src">    pwm_set_chan_level(slice_num, PWM_CHAN_A, 0);</td></tr><tr><td class="ln">633</td><td class="src">&#8203;</td></tr><tr><td class="ln">634</td><td class="src">    <span class="cm">// Start the channel</span></td></tr><tr><td class="ln">635</td><td class="src">    pwm_set_mask_enabled((1u &lt;&lt; slice_num));</td></tr><tr><td class="ln">636</td><td class="src">&#8203;</td></tr><tr><td class="ln">637</td><td class="src">   </td></tr><tr><td class="ln">638</td><td class="src">    <span class="cm">////////////////////////////////////////////////////////////////////////</span></td></tr><tr><td class="ln">639</td><td class="src">    <span class="cm">///////////////////////////// ROCK AND ROLL ////////////////////////////</span></td></tr><tr><td class="ln">640</td><td class="src">    <span class="cm">////////////////////////////////////////////////////////////////////////</span></td></tr><tr><td class="ln">641</td><td class="src">    <span class="cm">// start core 1 </span></td></tr><tr><td class="ln">642</td><td class="src">    multicore_reset_core1();</td></tr><tr><td class="ln">643</td><td class="src">    multicore_launch_core1(core1_entry);</td></tr><tr><td class="ln">644</td><td class="src">&#8203;</td></tr><tr><td class="ln">645</td><td class="src">    <span class="cm">// start core 0</span></td></tr><tr><td class="ln">646</td><td class="src">    gpio_init(14) ;</td></tr><tr><td class="ln">647</td><td class="src">    gpio_set_dir(14, GPIO_OUT) ;</td></tr><tr><td class="ln">648</td><td class="src">    gpio_put(14, 0) ;</td></tr><tr><td class="ln">649</td><td class="src">&#8203;</td></tr><tr><td class="ln">650</td><td class="src">    pt_add_thread(protothread_serial) ;</td></tr><tr><td class="ln">651</td><td class="src">    pt_schedule_start ;</td></tr><tr><td class="ln">652</td><td class="src">&#8203;</td></tr><tr><td class="ln">653</td><td class="src">}</td></tr></table><h3 class="codehead">A.2 &nbsp;mpu6050.c (IMU driver, course code)</h3><table class="code"><tr><td class="ln">1</td><td class="src"><span class="cm">/**</span></td></tr><tr><td class="ln">2</td><td class="src"><span class="cm"> * Hunter Adams (vha3@cornell.edu)</span></td></tr><tr><td class="ln">3</td><td class="src"><span class="cm"> * </span></td></tr><tr><td class="ln">4</td><td class="src"><span class="cm"> *</span></td></tr><tr><td class="ln">5</td><td class="src"><span class="cm"> */</span></td></tr><tr><td class="ln">6</td><td class="src">&#8203;</td></tr><tr><td class="ln">7</td><td class="src"><span class="pp">#include &quot;hardware/i2c.h&quot;</span></td></tr><tr><td class="ln">8</td><td class="src"><span class="pp">#include &quot;mpu6050.h&quot;</span></td></tr><tr><td class="ln">9</td><td class="src">&#8203;</td></tr><tr><td class="ln">10</td><td class="src">void mpu6050_reset() {</td></tr><tr><td class="ln">11</td><td class="src">    <span class="cm">// Two byte reset. First byte register, second byte data</span></td></tr><tr><td class="ln">12</td><td class="src">    <span class="cm">// There are a load more options to set up the device in</span></td></tr><tr><td class="ln">13</td><td class="src">    <span class="cm">// different ways that could be added here</span></td></tr><tr><td class="ln">14</td><td class="src">    uint8_t buf[] = {0x6B, 0x00};</td></tr><tr><td class="ln">15</td><td class="src">    i2c_write_blocking(I2C_CHAN, ADDRESS, buf, 2, false);</td></tr><tr><td class="ln">16</td><td class="src">&#8203;</td></tr><tr><td class="ln">17</td><td class="src">    <span class="cm">// Set gyro sample rate (set to 1KHz, same as accel)</span></td></tr><tr><td class="ln">18</td><td class="src">    uint8_t gyro_rate[] = {0x19, 0b00000111} ;</td></tr><tr><td class="ln">19</td><td class="src">    i2c_write_blocking(I2C_CHAN, ADDRESS, gyro_rate, 2, false);</td></tr><tr><td class="ln">20</td><td class="src">&#8203;</td></tr><tr><td class="ln">21</td><td class="src">    <span class="cm">// Configure the Gyro range (+/- 250 deg/s)</span></td></tr><tr><td class="ln">22</td><td class="src">    uint8_t gyro_settings[] = {0x1b, 0b00000000} ;</td></tr><tr><td class="ln">23</td><td class="src">    i2c_write_blocking(I2C_CHAN, ADDRESS, gyro_settings, 2, false);</td></tr><tr><td class="ln">24</td><td class="src">&#8203;</td></tr><tr><td class="ln">25</td><td class="src">    <span class="cm">// Configure the Accel range (+/- 2g&#x27;s)</span></td></tr><tr><td class="ln">26</td><td class="src">    uint8_t accel_settings[] = {0x1c, 0b00000000} ;</td></tr><tr><td class="ln">27</td><td class="src">    i2c_write_blocking(I2C_CHAN, ADDRESS, accel_settings, 2, false);</td></tr><tr><td class="ln">28</td><td class="src">&#8203;</td></tr><tr><td class="ln">29</td><td class="src">    <span class="cm">// Configure interrupt pin</span></td></tr><tr><td class="ln">30</td><td class="src">    uint8_t pin_settings[] = {0x37, 0b00010000} ;</td></tr><tr><td class="ln">31</td><td class="src">    i2c_write_blocking(I2C_CHAN, ADDRESS, pin_settings, 2, false);</td></tr><tr><td class="ln">32</td><td class="src">&#8203;</td></tr><tr><td class="ln">33</td><td class="src">    <span class="cm">// Configure data ready interrupt</span></td></tr><tr><td class="ln">34</td><td class="src">    uint8_t int_config[] = {0x38, 0x01} ;</td></tr><tr><td class="ln">35</td><td class="src">    i2c_write_blocking(I2C_CHAN, ADDRESS, int_config, 2, false);</td></tr><tr><td class="ln">36</td><td class="src">}</td></tr><tr><td class="ln">37</td><td class="src">&#8203;</td></tr><tr><td class="ln">38</td><td class="src">void mpu6050_read_raw(fix15 accel[3], fix15 gyro[3]) {</td></tr><tr><td class="ln">39</td><td class="src">    <span class="cm">// For this particular device, we send the device the register we want to read</span></td></tr><tr><td class="ln">40</td><td class="src">    <span class="cm">// first, then subsequently read from the device. The register is auto incrementing</span></td></tr><tr><td class="ln">41</td><td class="src">    <span class="cm">// so we don&#x27;t need to keep sending the register we want, just the first.</span></td></tr><tr><td class="ln">42</td><td class="src">&#8203;</td></tr><tr><td class="ln">43</td><td class="src">    uint8_t buffer[6];</td></tr><tr><td class="ln">44</td><td class="src">    int16_t temp_accel, temp_gyro ;</td></tr><tr><td class="ln">45</td><td class="src">&#8203;</td></tr><tr><td class="ln">46</td><td class="src">    <span class="cm">// Status value</span></td></tr><tr><td class="ln">47</td><td class="src">    uint32_t success;</td></tr><tr><td class="ln">48</td><td class="src">&#8203;</td></tr><tr><td class="ln">49</td><td class="src">    <span class="cm">// Start reading acceleration registers from register 0x3B for 6 bytes</span></td></tr><tr><td class="ln">50</td><td class="src">    uint8_t val = 0x3B;</td></tr><tr><td class="ln">51</td><td class="src">    i2c_write_timeout_us(I2C_CHAN, ADDRESS, &amp;val, 1, true, 250); <span class="cm">// true to keep master control of bus</span></td></tr><tr><td class="ln">52</td><td class="src">    i2c_read_timeout_us(I2C_CHAN, ADDRESS, buffer, 6, false, 250);</td></tr><tr><td class="ln">53</td><td class="src">&#8203;</td></tr><tr><td class="ln">54</td><td class="src">    for (int i = 0; i &lt; 3; i++) {</td></tr><tr><td class="ln">55</td><td class="src">        temp_accel = (buffer[i&lt;&lt;1] &lt;&lt; 8 | buffer[(i&lt;&lt;1) + 1]);</td></tr><tr><td class="ln">56</td><td class="src">        accel[i] = temp_accel ;</td></tr><tr><td class="ln">57</td><td class="src">        accel[i] &lt;&lt;= 2 ; <span class="cm">// convert to g&#x27;s (fixed point)</span></td></tr><tr><td class="ln">58</td><td class="src">    }</td></tr><tr><td class="ln">59</td><td class="src">&#8203;</td></tr><tr><td class="ln">60</td><td class="src">    <span class="cm">// Now gyro data from reg 0x43 for 6 bytes</span></td></tr><tr><td class="ln">61</td><td class="src">    <span class="cm">// The register is auto incrementing on each read</span></td></tr><tr><td class="ln">62</td><td class="src">    val = 0x43;</td></tr><tr><td class="ln">63</td><td class="src">    i2c_write_timeout_us(I2C_CHAN, ADDRESS, &amp;val, 1, true, 250);</td></tr><tr><td class="ln">64</td><td class="src">    i2c_read_timeout_us(I2C_CHAN, ADDRESS, buffer, 6, false, 250);  <span class="cm">// False - finished with bus</span></td></tr><tr><td class="ln">65</td><td class="src">&#8203;</td></tr><tr><td class="ln">66</td><td class="src">    for (int i = 0; i &lt; 3; i++) {</td></tr><tr><td class="ln">67</td><td class="src">        temp_gyro = (buffer[i&lt;&lt;1] &lt;&lt; 8 | buffer[(i&lt;&lt;1) + 1]);</td></tr><tr><td class="ln">68</td><td class="src">        gyro[i] = temp_gyro ;</td></tr><tr><td class="ln">69</td><td class="src">        gyro[i] = multfix15(gyro[i], 500&lt;&lt;16) ; <span class="cm">// deg/sec</span></td></tr><tr><td class="ln">70</td><td class="src">    }</td></tr><tr><td class="ln">71</td><td class="src">}</td></tr><tr><td class="ln">72</td><td class="src"><span class="cm">/////////////////////////////////////////////////////////////////</span></td></tr></table><h3 class="codehead">A.3 &nbsp;mpu6050.h (pins, fix15 macros and constants)</h3><table class="code"><tr><td class="ln">1</td><td class="src"><span class="cm">/**</span></td></tr><tr><td class="ln">2</td><td class="src"><span class="cm"> * Hunter Adams (vha3@cornell.edu)</span></td></tr><tr><td class="ln">3</td><td class="src"><span class="cm"> * </span></td></tr><tr><td class="ln">4</td><td class="src"><span class="cm"> *</span></td></tr><tr><td class="ln">5</td><td class="src"><span class="cm"> */</span></td></tr><tr><td class="ln">6</td><td class="src">&#8203;</td></tr><tr><td class="ln">7</td><td class="src"><span class="pp">#define ADDRESS 0x68</span></td></tr><tr><td class="ln">8</td><td class="src"><span class="pp">#define I2C_CHAN i2c0</span></td></tr><tr><td class="ln">9</td><td class="src"><span class="pp">#define SDA_PIN  8</span></td></tr><tr><td class="ln">10</td><td class="src"><span class="pp">#define SCL_PIN  9</span></td></tr><tr><td class="ln">11</td><td class="src"><span class="pp">#define I2C_BAUD_RATE 400000</span></td></tr><tr><td class="ln">12</td><td class="src">&#8203;</td></tr><tr><td class="ln">13</td><td class="src"><span class="cm">// Fixed point data type</span></td></tr><tr><td class="ln">14</td><td class="src">typedef signed int fix15 ;</td></tr><tr><td class="ln">15</td><td class="src"><span class="pp">#define multfix15(a,b) ((fix15)(((( signed long long)(a))*(( signed long long)(b)))&gt;&gt;16)) </span></td></tr><tr><td class="ln">16</td><td class="src">#define float2fix15(a) ((fix15)((a)*65536.0f)) <span class="cm">// 2^16</span></td></tr><tr><td class="ln">17</td><td class="src"><span class="pp">#define fix2float15(a) ((float)(a)/65536.0f) </span></td></tr><tr><td class="ln">18</td><td class="src"><span class="pp">#define int2fix15(a) ((a)&lt;&lt;16)</span></td></tr><tr><td class="ln">19</td><td class="src"><span class="pp">#define fix2int15(a) ((a)&gt;&gt;16)</span></td></tr><tr><td class="ln">20</td><td class="src"><span class="pp">#define divfix(a,b) ((fix15)(((( signed long long)(a) &lt;&lt; 16 / (b)))))</span></td></tr><tr><td class="ln">21</td><td class="src"><span class="cm">// Parameter values</span></td></tr><tr><td class="ln">22</td><td class="src"><span class="pp">#define oneeightyoverpi 3754936</span></td></tr><tr><td class="ln">23</td><td class="src"><span class="pp">#define zeropt001 65</span></td></tr><tr><td class="ln">24</td><td class="src"><span class="pp">#define zeropt999 65470</span></td></tr><tr><td class="ln">25</td><td class="src"><span class="pp">#define zeropt01 655</span></td></tr><tr><td class="ln">26</td><td class="src"><span class="pp">#define zeropt99 64880</span></td></tr><tr><td class="ln">27</td><td class="src"><span class="pp">#define zeropt1 6553</span></td></tr><tr><td class="ln">28</td><td class="src"><span class="pp">#define zeropt9 58982</span></td></tr><tr><td class="ln">29</td><td class="src">&#8203;</td></tr><tr><td class="ln">30</td><td class="src"><span class="cm">// VGA primitives - usable in main</span></td></tr><tr><td class="ln">31</td><td class="src">void mpu6050_reset(void) ;</td></tr><tr><td class="ln">32</td><td class="src">void mpu6050_read_raw(fix15 accel[3], fix15 gyro[3]) ;</td></tr></table><h3 class="codehead">A.4 &nbsp;CMakeLists.txt (build)</h3><table class="code"><tr><td class="ln">1</td><td class="src"># == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==</td></tr><tr><td class="ln">2</td><td class="src">if(WIN32)</td></tr><tr><td class="ln">3</td><td class="src">    set(USERHOME $ENV{USERPROFILE})</td></tr><tr><td class="ln">4</td><td class="src">else()</td></tr><tr><td class="ln">5</td><td class="src">    set(USERHOME $ENV{HOME})</td></tr><tr><td class="ln">6</td><td class="src">endif()</td></tr><tr><td class="ln">7</td><td class="src">set(sdkVersion 2.3.1)</td></tr><tr><td class="ln">8</td><td class="src">set(toolchainVersion 15_2_Rel1)</td></tr><tr><td class="ln">9</td><td class="src">set(picotoolVersion 2.3.1)</td></tr><tr><td class="ln">10</td><td class="src">set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)</td></tr><tr><td class="ln">11</td><td class="src">if (EXISTS ${picoVscode})</td></tr><tr><td class="ln">12</td><td class="src">    include(${picoVscode})</td></tr><tr><td class="ln">13</td><td class="src">endif()</td></tr><tr><td class="ln">14</td><td class="src"># ====================================================================================</td></tr><tr><td class="ln">15</td><td class="src">set(PICO_BOARD pico2 CACHE STRING &quot;Board type&quot;)</td></tr><tr><td class="ln">16</td><td class="src">&#8203;</td></tr><tr><td class="ln">17</td><td class="src"># cmake version</td></tr><tr><td class="ln">18</td><td class="src">cmake_minimum_required(VERSION 3.13)</td></tr><tr><td class="ln">19</td><td class="src">&#8203;</td></tr><tr><td class="ln">20</td><td class="src"># include the sdk.cmake file</td></tr><tr><td class="ln">21</td><td class="src">include(pico_sdk_import.cmake)</td></tr><tr><td class="ln">22</td><td class="src">&#8203;</td></tr><tr><td class="ln">23</td><td class="src"># give the project a name (anything you want)</td></tr><tr><td class="ln">24</td><td class="src">project(MPU6050_IMU C CXX ASM)</td></tr><tr><td class="ln">25</td><td class="src">&#8203;</td></tr><tr><td class="ln">26</td><td class="src"># initialize the sdk</td></tr><tr><td class="ln">27</td><td class="src">pico_sdk_init()</td></tr><tr><td class="ln">28</td><td class="src">&#8203;</td></tr><tr><td class="ln">29</td><td class="src">add_executable(MPU6050_IMU)</td></tr><tr><td class="ln">30</td><td class="src">&#8203;</td></tr><tr><td class="ln">31</td><td class="src"># must match with pio filename and executable name from above</td></tr><tr><td class="ln">32</td><td class="src">pico_generate_pio_header(MPU6050_IMU ${CMAKE_CURRENT_LIST_DIR}/VGA/hsync.pio)</td></tr><tr><td class="ln">33</td><td class="src">pico_generate_pio_header(MPU6050_IMU ${CMAKE_CURRENT_LIST_DIR}/VGA/vsync.pio)</td></tr><tr><td class="ln">34</td><td class="src">pico_generate_pio_header(MPU6050_IMU ${CMAKE_CURRENT_LIST_DIR}/VGA/rgb.pio)</td></tr><tr><td class="ln">35</td><td class="src">&#8203;</td></tr><tr><td class="ln">36</td><td class="src"># must match with executable name and source file names</td></tr><tr><td class="ln">37</td><td class="src">target_sources(MPU6050_IMU PRIVATE imu_demo.c VGA/vga16_graphics_v3.c mpu6050.c)</td></tr><tr><td class="ln">38</td><td class="src">&#8203;</td></tr><tr><td class="ln">39</td><td class="src"># Add pico_multicore which is required for multicore functionality</td></tr><tr><td class="ln">40</td><td class="src">target_link_libraries(  MPU6050_IMU</td></tr><tr><td class="ln">41</td><td class="src">                        pico_stdlib</td></tr><tr><td class="ln">42</td><td class="src">                        pico_bootsel_via_double_reset</td></tr><tr><td class="ln">43</td><td class="src">                        pico_multicore</td></tr><tr><td class="ln">44</td><td class="src">                        hardware_pwm</td></tr><tr><td class="ln">45</td><td class="src">                        hardware_dma</td></tr><tr><td class="ln">46</td><td class="src">                        hardware_irq</td></tr><tr><td class="ln">47</td><td class="src">                        hardware_adc</td></tr><tr><td class="ln">48</td><td class="src">                        hardware_pio</td></tr><tr><td class="ln">49</td><td class="src">                        hardware_sync</td></tr><tr><td class="ln">50</td><td class="src">                        hardware_i2c</td></tr><tr><td class="ln">51</td><td class="src">                        hardware_clocks)</td></tr><tr><td class="ln">52</td><td class="src">&#8203;</td></tr><tr><td class="ln">53</td><td class="src"># create map/bin/hex file etc.</td></tr><tr><td class="ln">54</td><td class="src">pico_add_extra_outputs(MPU6050_IMU)</td></tr></table>
+
+<!-- ======================================================= APPENDIX B -->
+<h1 class="sec">Appendix B &nbsp;AI Prompt Log</h1>
+<p><b>Tool:</b> Claude Code in VS Code, model <b>Claude Opus 5.5</b>. <b>Dates:</b> October 21&ndash;22, 2026.
+<b>Source:</b> the prompt log Claude kept in our project (<code>MPU6050_IMU_Demo/PROMPT_LOG.md</code>), reproduced
+below. Prompts are verbatim, typos included. Responses are as recorded in that log. Claude kept the log as it went
+(from prompt 9 onward, back-filling 1&ndash;8), so a response is sometimes a condensed version of the full chat reply.</p>
+<p><b>How we counted.</b> <i>Words</i> are counted from the log: our prompt, and Claude's recorded response (excluding
+code). <i>Code lines given</i> counts the C lines in each response. For <i>suggested</i> changes, one addition,
+deletion or modification is one distinct change to the program (e.g. a new serial command, a new ISR block, or one
+edited statement), not one line. <i>Accepted</i> means the change is still present in the final
+<code>imu_demo.c</code> (Appendix A), even if we edited it later. Changes we applied and later removed count as not accepted.</p>
+<table class='log'><thead><tr><th>#</th><th>Date</th><th>Prompt (topic)</th><th>Prompt words</th><th>Response words</th><th>Code lines given</th><th>Suggested<br>add / del / mod</th><th>Accepted<br>add / del / mod</th><th>Notes</th></tr></thead><tbody><tr><td>1</td><td style='white-space:nowrap'>10/21</td><td>Integrate PWM fan control into the IMU demo</td><td>11</td><td>57</td><td>23</td><td>3 / 0 / 1</td><td>3 / 0 / 1</td><td class='note'>Kept. We later renamed the manual-duty command from <code>p</code> to <code>n</code>.</td></tr><tr><td>2</td><td style='white-space:nowrap'>10/21</td><td>Comment which code was added</td><td>11</td><td>32</td><td>0</td><td>0 / 0 / 0</td><td>0 / 0 / 0</td><td class='note'>Comment markers only; kept (the ADDED / CHANGED markers in Appendix A).</td></tr><tr><td>3</td><td style='white-space:nowrap'>10/21</td><td>Fan runs at max with duty cycle 0</td><td>23</td><td>69</td><td>0</td><td>0 / 0 / 0</td><td>0 / 0 / 0</td><td class='note'>Diagnosis only.</td></tr><tr><td>4</td><td style='white-space:nowrap'>10/21</td><td>6000 also runs at full speed; PWM_Demo works</td><td>35</td><td>92</td><td>0</td><td>0 / 0 / 0</td><td>0 / 0 / 0</td><td class='note'>Diagnosis only (program hung in I2C setup).</td></tr><tr><td>5</td><td style='white-space:nowrap'>10/21</td><td>Add a complementary filter and display it</td><td>14</td><td>80</td><td>38</td><td>9 / 0 / 0</td><td>7 / 0 / 0</td><td class='note'><code>#define PI</code> and the magenta accel-angle trace were later removed.</td></tr><tr><td>6</td><td style='white-space:nowrap'>10/21</td><td>VGA isn't displaying anything</td><td>10</td><td>100</td><td>5</td><td>0 / 1 / 1</td><td>0 / 1 / 1</td><td class='note'>Kept: local Q15 macros deleted, 180/&pi; constant fixed.</td></tr><tr><td>7</td><td style='white-space:nowrap'>10/21</td><td>Serial terminal broken too</td><td>10</td><td>60</td><td>29</td><td>4 / 0 / 2</td><td>0 / 0 / 0</td><td class='note'>WHO_AM_I check and <code>imu_ok</code> guards later removed by us; replaced by entry 10.</td></tr><tr><td>8</td><td style='white-space:nowrap'>10/21</td><td>Plots all read 0</td><td>9</td><td>77</td><td>2</td><td>0 / 0 / 1</td><td>0 / 0 / 0</td><td class='note'>Removed together with the entry 7 check.</td></tr><tr><td>9</td><td style='white-space:nowrap'>10/21</td><td>Create this prompt log</td><td>37</td><td>21</td><td>0</td><td>0 / 0 / 0</td><td>0 / 0 / 0</td><td class='note'>Created PROMPT_LOG.md.</td></tr><tr><td>10</td><td style='white-space:nowrap'>10/21</td><td>VGA not displaying again (IMU wiring checked)</td><td>26</td><td>74</td><td>14</td><td>1 / 0 / 0</td><td>1 / 0 / 0</td><td class='note'>Kept: I2C bus recovery at start-up.</td></tr><tr><td>11</td><td style='white-space:nowrap'>10/21</td><td>How does the complementary filter work / rotation about +y</td><td>30</td><td>192</td><td>7</td><td>1 / 0 / 5</td><td>1 / 0 / 5</td><td class='note'>Offered as a suggestion; we applied the axis change by hand (finished in entry 12).</td></tr><tr><td>12</td><td style='white-space:nowrap'>10/21</td><td>Angles read 80–300° and don't track (arm rotates about +y)</td><td>75</td><td>105</td><td>12</td><td>0 / 0 / 4</td><td>0 / 0 / 4</td><td class='note'>Kept: a<sub>z</sub> axis, +&pi; removed, plot offset removed, seed re-enabled.</td></tr><tr><td>13</td><td style='white-space:nowrap'>10/21</td><td>Closed-loop proportional control of the motor</td><td>13</td><td>147</td><td>34</td><td>7 / 0 / 3</td><td>7 / 0 / 3</td><td class='note'>Kept. We later renamed the Kp command from <code>k</code> to <code>p</code>.</td></tr><tr><td>14</td><td style='white-space:nowrap'>10/22</td><td>How to tune Kp (bouncing vs. settling ~10° low)</td><td>39</td><td>134</td><td>0</td><td>1 / 0 / 0</td><td>0 / 0 / 0</td><td class='note'>PID + feed-forward sketch not used.</td></tr><tr><td>15</td><td style='white-space:nowrap'>10/22</td><td>Add derivative control</td><td>23</td><td>104</td><td>18</td><td>3 / 0 / 2</td><td>3 / 0 / 2</td><td class='note'>Kept.</td></tr><tr><td>16</td><td style='white-space:nowrap'>10/22</td><td>Clamp the duty cycle to 4500</td><td>9</td><td>39</td><td>8</td><td>1 / 0 / 2</td><td>1 / 0 / 2</td><td class='note'>Kept, but we later raised <code>DUTY_MAX</code> back to 6000.</td></tr><tr><td>17</td><td style='white-space:nowrap'>10/22</td><td>Add integral control</td><td>6</td><td>147</td><td>24</td><td>6 / 0 / 1</td><td>6 / 0 / 1</td><td class='note'>Kept. We later raised <code>i_max</code> to 10000 and made <code>i 0</code> clear the integrator.</td></tr><tr><td>18</td><td style='white-space:nowrap'>10/22</td><td>Tuning PID for fast response</td><td>20</td><td>189</td><td>0</td><td>0 / 0 / 0</td><td>0 / 0 / 0</td><td class='note'>Tuning advice only.</td></tr><tr class='tot'><td colspan='3'>Total (18 prompts)</td><td>401</td><td>1719</td><td>214</td><td>36 / 1 / 22</td><td>29 / 1 / 19</td><td></td></tr></tbody></table>
+<div class="tcap" style="margin-top:4pt"><b>Table B1.</b> Prompt log summary (18 prompts). Totals: suggested 36 / 1 / 22, accepted 29 / 1 / 19
+(additions / deletions / modifications).</div>
+<p style="font-size:9.4pt"><i>Note:</i> the demo-button sequence and the overcurrent-protection block (slew limit and conditional
+integration) are also marked <code>ADDED</code> in Appendix A but were written after the last entry of
+<code>PROMPT_LOG.md</code> and are not recorded there, so they are not counted in Table B1.</p>
+<h2>Full log</h2>
+<div class='entry'><h4>B.1 &nbsp;Integrate PWM fan control into the IMU demo <span class='meta'>2026-10-21 &middot; 11 prompt words &middot; 57 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>Can you integrate the pwm fan control into the imu demo</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>The IMU demo already set up the PWM slice on GPIO 4/5 (and used the PWM wrap interrupt to read the IMU at 1 kHz), but the duty cycle was stuck at 0. Merged the duty-cycle update from <code>PWM_Demo/pwm-demo.c</code> into the existing ISR and added a serial command <code>p</code> to set the duty cycle (0–6000). Built successfully.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// Globals
+volatile int control ;
+volatile int old_control ;
+
+// In on_pwm_wrap()
+if (control!=old_control) {
+    old_control = control ;
+    pwm_set_chan_level(slice_num, PWM_CHAN_A, control);
+}
+
+// In protothread_serial
+else if (classifier==&#x27;p&#x27;) {
+    sprintf(pt_serial_out_buffer, &quot;duty cycle (0-%d): &quot;, WRAPVAL);
+    serial_write ;
+    serial_read ;
+    sscanf(pt_serial_in_buffer,&quot;%d&quot;, &amp;test_in) ;
+    if (test_in &gt;= 0 &amp;&amp; test_in &lt;= WRAPVAL) {
+        control = test_in ;
+    }
+}
+
+// In main()
+gpio_set_function(PWM_OUT, GPIO_FUNC_PWM);  // was hardcoded 4</pre></div><div class='entry'><h4>B.2 &nbsp;Comment which code was added <span class='meta'>2026-10-21 &middot; 11 prompt words &middot; 32 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>Can you clearly comment which parts of the code you added</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Wrapped each added block in <code>// ===== ADDED: ... =====</code> / <code>// ===== END ADDED =====</code> markers, and marked the one changed line with <code>// CHANGED: was hardcoded 4, now uses PWM_OUT</code>.</p><div class='lab'>Code: comment markers only.</div></div><div class='entry'><h4>B.3 &nbsp;Fan runs at max with duty cycle 0 <span class='meta'>2026-10-21 &middot; 23 prompt words &middot; 69 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>something is wrong with the pwm control. when inputtitng a duty cycle of 0 it is still running the fan at max value</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Traced the code path. It correctly sets GPIO 4's level to 0, and the startup level is also 0, so the software logic looked right. Suggested hardware checks: does the fan run at full speed before any input, is the driver circuit inverting (fix: <code>pwm_set_output_polarity(slice_num, true, false)</code>), does PWM_Demo behave the same, is the fan on GPIO 4, is the MOSFET gate floating, and was the new <code>.uf2</code> flashed.</p><div class='lab'>Code: none.</div></div><div class='entry'><h4>B.4 &nbsp;6000 also runs at full speed; PWM_Demo works <span class='meta'>2026-10-21 &middot; 35 prompt words &middot; 92 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>6000 still seems to run it at full speed. running the PWM_Demo itself works and lets you change hte fan speed. could it be somehting changing the logic hwen merging the pwm code into imu?</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Compared the merged code against PWM_Demo. The duty-cycle logic, pin, wrap and clock divider were identical. There were no pin conflicts (I2C on 8/9, VGA on 16–21, UART on 0/1), and both builds targeted the Pico 2 (RP2350). Concluded the IMU program probably never reached the PWM setup. <code>main()</code> sets up VGA and the IMU first, and <code>mpu6050_reset()</code> uses I2C writes with no timeout, which hang if the bus is stuck, so GPIO 4 would float. Asked whether the serial prompt and the VGA traces appear and whether the IMU was connected.</p><div class='lab'>Code: none.</div></div><div class='entry'><h4>B.5 &nbsp;Add a complementary filter and display it <span class='meta'>2026-10-21 &middot; 14 prompt words &middot; 80 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>how do I properly add a complementary filter and see it on the screen</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>The user had started adding the filter lines, but the variables were undeclared and the low-pass filter was missing. Added the declarations, a first-order IIR low-pass filter (alpha = 1/16) on the accelerometer x/y, starting values seeded from the first reading, display buffers, magenta (accel-only) and yellow (complementary) traces on the top plot shifted by −180°, and a numeric text readout. Noted that the gyro sign, the axis choice, the 1 kHz timestep and the 0.999/0.001 blend may need tuning.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>#define PI 3.14159265
+fix15 filtered_ax, filtered_ay ;
+fix15 accel_angle ;
+fix15 gyro_angle_delta ;
+fix15 complementary_angle ;
+fix15 accel_angle_buf[PLOT_WIDTH] ;
+fix15 comp_angle_buf[PLOT_WIDTH] ;
+
+// ISR: low pass filter
+filtered_ax = filtered_ax + ((acceleration[0] - filtered_ax) &gt;&gt; 4) ;
+filtered_ay = filtered_ay + ((acceleration[1] - filtered_ay) &gt;&gt; 4) ;
+
+// ISR: store for display
+accel_angle_buf[head] = accel_angle ;
+comp_angle_buf[head] = complementary_angle ;
+
+// Draw thread: angle traces
+drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
+    (int)(NEW_RANGE*((float)((fix2float15(accel_angle_buf[start]) - 180.)-OLD_MIN)/OLD_RANGE))), MAGENTA) ;
+drawPixel(LEFT_EDGE + i, (TOP_PLOT_BOTTOM -
+    (int)(NEW_RANGE*((float)((fix2float15(comp_angle_buf[start]) - 180.)-OLD_MIN)/OLD_RANGE))), YELLOW) ;
+
+// Draw thread: text readout
+setTextSize(2) ;
+setTextColor(MAGENTA) ;
+setCursor(85, 20) ;
+sprintf(screentext, &quot;Accel: %6.1f&quot;, fix2float15(accel_angle)) ;
+writeString(screentext) ;
+setTextColor(YELLOW) ;
+setCursor(330, 20) ;
+sprintf(screentext, &quot;Comp: %6.1f&quot;, fix2float15(complementary_angle)) ;
+writeString(screentext) ;
+setTextSize(1) ;
+
+// main(): seed filters
+filtered_ax = acceleration[0] ;
+filtered_ay = acceleration[1] ;
+complementary_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_ay) + PI), oneeightyoverpi);</pre></div><div class='entry'><h4>B.6 &nbsp;VGA isn't displaying anything <span class='meta'>2026-10-21 &middot; 10 prompt words &middot; 100 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>can you check for bugs the vga isn't displaying anything</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Found two math bugs:</p><ol><li>A local set of Q15 fixed-point macros (1.0 = 32768) was overriding the Q16 macros in <code>mpu6050.h</code> (1.0 = 65536), while <code>mpu6050.c</code> still produced Q16 data, so every value was misread by 2×. Removed the local macros.</li><li><code>multfix15(..., 180 / M_PI)</code> truncated the constant to the integer 57. Replaced it with <code>oneeightyoverpi</code>.</li></ol><p>Neither would blank the screen: <code>drawPixel</code> checks its bounds and the VGA driver is DMA-only. Concluded the program was likely hung in <code>mpu6050_reset()</code> before core 1 started, and suggested checking for the serial prompt, scoping GPIO 14/15, and checking the IMU wiring.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// FIXED: removed local Q15 fixed-point macros. mpu6050.c / mpu6050.h use
+// 15.16 format (1.0 = 65536), so the IMU data must be read with those macros.
+
+// FIXED: second argument must be fixed point (180/M_PI was truncated to the integer 57)
+accel_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_ay) + PI), oneeightyoverpi);</pre></div><div class='entry'><h4>B.7 &nbsp;Serial terminal broken too <span class='meta'>2026-10-21 &middot; 10 prompt words &middot; 60 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>the serial command terminal seems to be broken as well</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>The serial terminal, VGA and fan all failing together confirmed the program was hanging during startup in the I2C/IMU setup. Added a WHO_AM_I check with a timeout, an <code>imu_ok</code> flag that skips the IMU reset and the ISR reads if the IMU doesn't respond (so the timeouts can't starve core 0), and startup progress messages printed to the serial terminal.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// Global
+volatile int imu_ok = 0 ;
+
+// main(), before mpu6050_reset()
+printf(&quot;\n\rVGA and I2C initialized\n\r&quot;) ;
+uint8_t who_reg = 0x75 ;
+uint8_t who_am_i = 0 ;
+int w = i2c_write_timeout_us(I2C_CHAN, ADDRESS, &amp;who_reg, 1, true, 1000) ;
+int r = i2c_read_timeout_us(I2C_CHAN, ADDRESS, &amp;who_am_i, 1, false, 1000) ;
+if (w == 1 &amp;&amp; r == 1 &amp;&amp; who_am_i == 0x68) {
+    imu_ok = 1 ;
+    printf(&quot;MPU6050 found (WHO_AM_I = 0x%02x)\n\r&quot;, who_am_i) ;
+}
+else {
+    imu_ok = 0 ;
+    printf(&quot;ERROR: MPU6050 not responding (write=%d read=%d WHO_AM_I=0x%02x)\n\r&quot;, w, r, who_am_i) ;
+    printf(&quot;Check IMU power/ground, SDA on GPIO %d, SCL on GPIO %d\n\r&quot;, SDA_PIN, SCL_PIN) ;
+}
+if (imu_ok) {
+    mpu6050_reset();
+    mpu6050_read_raw(acceleration, gyro);
+    printf(&quot;MPU6050 reset done\n\r&quot;) ;
+}
+
+// ISR
+if (imu_ok) mpu6050_read_raw(acceleration, gyro);
+
+// After multicore_launch_core1()
+printf(&quot;Core 1 launched, starting serial thread\n\r&quot;) ;</pre></div><div class='entry'><h4>B.8 &nbsp;Plots all read 0 <span class='meta'>2026-10-21 &middot; 9 prompt words &middot; 77 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>The plots are all just reading at 0 now</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>The WHO_AM_I check was too strict. Clone boards often report an ID other than <code>0x68</code> (such as <code>0x70</code>, <code>0x72</code> or <code>0x98</code>), so <code>imu_ok</code> stayed 0 and every IMU read was skipped. Relaxed the check to accept any device that acknowledges on I2C. Explained how to read the error codes in the ERROR message: <code>-1</code> means the IMU didn't respond at its address, <code>-2</code> means the bus is stuck (timeout). Also suggested checking the AD0 pin (address 0x69).</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// Accept any device that answers: clone boards often report an ID other than 0x68
+if (w == 1 &amp;&amp; r == 1) {</pre></div><div class='entry'><h4>B.9 &nbsp;Create this prompt log <span class='meta'>2026-10-21 &middot; 37 prompt words &middot; 21 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>Can you record all prompts in a markdown file for the previous prompts and for future prompts. And keep a prompt log of the promt and the answer and code if generated as well as the date.</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Created this file (<code>PROMPT_LOG.md</code>) with every prompt so far, and saved a memory note so future sessions keep appending entries here.</p><div class='lab'>Code: none (this file).</div></div><div class='entry'><h4>B.10 &nbsp;VGA not displaying again (IMU wiring checked) <span class='meta'>2026-10-21 &middot; 26 prompt words &middot; 74 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>The VGA screen is not displaying again. previously this was because the imu wiring became loose but now I checked this and its still not working.</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>The user had removed the WHO_AM_I check and the <code>imu_ok</code> guards, so <code>mpu6050_reset()</code> could block forever again. The likely cause was a stuck I2C bus: when the Pico resets mid-transfer, the still-powered MPU6050 can hold SDA low, and reflashing doesn't clear it (a power cycle does). Suggested unplugging USB as a quick test, and added a standard I2C bus recovery at startup (up to 9 SCL pulses) that prints whether the bus is free.</p><div class='lab'>Code (imu_demo.c, in main() before i2c_init):</div><pre class='logcode'>gpio_init(SDA_PIN) ;
+gpio_init(SCL_PIN) ;
+gpio_set_dir(SDA_PIN, GPIO_IN) ;
+gpio_pull_up(SDA_PIN) ;
+gpio_set_dir(SCL_PIN, GPIO_OUT) ;
+gpio_put(SCL_PIN, 1) ;
+sleep_us(10) ;
+for (int k = 0; k &lt; 9 &amp;&amp; !gpio_get(SDA_PIN); k++) {
+    gpio_put(SCL_PIN, 0) ;
+    sleep_us(5) ;
+    gpio_put(SCL_PIN, 1) ;
+    sleep_us(5) ;
+}
+printf(&quot;\n\rI2C bus %s\n\r&quot;, gpio_get(SDA_PIN) ? &quot;free&quot; : &quot;STUCK (SDA held low)&quot;) ;</pre></div><div class='entry'><h4>B.11 &nbsp;How does the complementary filter work / rotation about +y <span class='meta'>2026-10-21 &middot; 30 prompt words &middot; 192 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>Can you explain how the complementary filter works? What should we see the accel angle and complementary angle change as we rotate about the + y axis of the imu</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><ul><li><b>Concept:</b> the accel angle (from gravity) never drifts but is noisy, and the gyro integral is smooth but drifts. The filter <code>angle = 0.999*(angle + rate*dt) + 0.001*accel_angle</code> acts as a high-pass on the gyro and a low-pass on the accel, with about a 1 s crossover (dt/0.001).</li><li><b>Current code:</b> it measures rotation about <b>z</b> (accel x/y, gyro z). Rotating about +y moves gravity between x and z instead, so with a flat IMU the accel angle flips between about 90° and 270°, and the complementary angle gets no gyro input and just drifts slowly toward it. The start-up seed is also commented out, so the complementary angle starts at 0 and takes about 3–5 s to settle.</li><li><b>For +y rotation:</b> use accel x/z and gyro y (code below, suggested only, not applied). Expected behaviour: flat = 0°, a +30° tilt reads +30° on both traces, accel is jittery while the complementary trace is smooth, a fast tilt is tracked with no lag, vibration spikes only the accel, and there's no long-term drift. If the complementary trace moves the wrong way and then creeps back, flip the gyro sign.</li></ul><div class='lab'>Code (suggested, not applied):</div><pre class='logcode'>filtered_ax = filtered_ax + ((acceleration[0] - filtered_ax) &gt;&gt; 4) ;
+filtered_az = filtered_az + ((acceleration[2] - filtered_az) &gt;&gt; 4) ;
+accel_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);
+gyro_angle_delta = multfix15(gyro[1], zeropt001) ;
+complementary_angle = multfix15(complementary_angle + gyro_angle_delta, zeropt999)
+                    + multfix15(accel_angle, zeropt001);
+// also: declare fix15 filtered_az; remove &quot;- 180.&quot; from the angle plot lines</pre></div><div class='entry'><h4>B.12 &nbsp;Angles read 80–300° and don't track (arm rotates about +y) <span class='meta'>2026-10-21 &middot; 75 prompt words &middot; 105 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>The IMU setup is an arm that rotates about the +y axis from -180 to 180 deg in the z axis, so the IMU chip lays flat when the arm is held horizontally in the middle of its rotation range. Right now accel ang and comp ang dont seem to make sense because htey range from 80 to 300 deg and dont really track the intermediate movement. is the orientation in the code still wrong?</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Yes. The user had renamed the variable to <code>filtered_az</code> and switched to gyro y with a <code>+</code>, but <code>filtered_az</code> was still filtering <code>acceleration[1]</code> (the y axis, which is the rotation axis and stays near 0). With a near-zero denominator, <code>atan2</code> flipped toward ±90° (90°/270° after the +PI offset), which matched the 80–300° symptom. Fixed it to use <code>acceleration[2]</code>, removed the <code>+PI</code> so flat = 0° and the range is ±180°, removed the <code>-180.</code> plot shift, and re-enabled the start-up seed using the z axis. It builds cleanly. Noted the wraparound at ±180° (arm pointing straight down), where the accel angle jumps between +180 and −180.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// ISR
+filtered_az = filtered_az + ((acceleration[2] - filtered_az) &gt;&gt; 4) ;
+accel_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);
+
+// Draw thread (no -180 shift)
+(int)(NEW_RANGE*((float)((fix2float15(accel_angle_buf[start]))-OLD_MIN)/OLD_RANGE))
+(int)(NEW_RANGE*((float)((fix2float15(comp_angle_buf[start]))-OLD_MIN)/OLD_RANGE))
+
+// main() seed
+filtered_ax = acceleration[0] ;
+filtered_az = acceleration[2] ;
+complementary_angle = multfix15(float2fix15(atan2(-filtered_ax, filtered_az)), oneeightyoverpi);</pre></div><div class='entry'><h4>B.13 &nbsp;Closed-loop proportional control of the motor <span class='meta'>2026-10-21 &middot; 13 prompt words &middot; 147 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>How do we add closed loop proportional control of the motor using PWM?</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Added a P controller in the 1 kHz IMU ISR, right after the complementary angle update: <code>error = desired - complementary_angle</code>, <code>duty = Kp * error</code>, clamped to 0..6000 (the fan only pushes one way). Moved the PWM level update after the controller so each new value is applied in the same interrupt. Added serial commands: <code>a</code> target angle, <code>k</code> Kp, <code>c</code> closed loop on/off (turning it off sets the duty to 0), and <code>p</code> manual duty, which now turns the closed loop off. Added a light-blue target line on the top plot and a readout of target, Kp, duty and mode. Enlarged <code>screentext</code> from 40 to 80 chars, because the readout line would have overflowed it. Explained that a P-only controller leaves a steady-state error because it needs a nonzero error to hold the arm up against gravity, which is what the I term will fix.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// Globals
+volatile int closed_loop = 0 ;
+volatile fix15 desired_angle = 0 ;
+volatile fix15 Kp = int2fix15(100) ;
+fix15 angle_error ;
+char screentext[80];
+
+// ISR, after complementary filter
+if (closed_loop) {
+    angle_error = desired_angle - complementary_angle ;
+    int u = (int)((((long long)Kp) * ((long long)angle_error)) &gt;&gt; 32) ;
+    if (u &lt; 0) u = 0 ;
+    if (u &gt; WRAPVAL) u = WRAPVAL ;
+    control = u ;
+}
+if (control!=old_control) {
+    old_control = control ;
+    pwm_set_chan_level(slice_num, PWM_CHAN_A, control);
+}
+
+// Draw thread
+drawHLine(LEFT_EDGE, (TOP_PLOT_BOTTOM -
+    (int)(NEW_RANGE*((float)((fix2float15(desired_angle))-OLD_MIN)/OLD_RANGE))), PLOT_WIDTH, LIGHT_BLUE) ;
+setTextColor(LIGHT_BLUE) ;
+setCursor(85, 45) ;
+sprintf(screentext, &quot;Target: %6.1f  Kp: %6.1f  Duty: %4d  %s&quot;,
+    fix2float15(desired_angle), fix2float15(Kp), control, closed_loop ? &quot;CLOSED LOOP&quot; : &quot;MANUAL&quot;) ;
+writeString(screentext) ;
+
+// Serial thread
+else if (classifier==&#x27;a&#x27;) { /* read float -&gt; desired_angle (-180..180) */ }
+else if (classifier==&#x27;k&#x27;) { /* read float -&gt; Kp (0..6000) */ }
+else if (classifier==&#x27;c&#x27;) { /* 1 = closed_loop on, 0 = off and control = 0 */ }
+// &#x27;p&#x27; now also sets closed_loop = 0</pre></div><div class='entry'><h4>B.14 &nbsp;How to tune Kp (bouncing vs. settling ~10° low) <span class='meta'>2026-10-22 &middot; 39 prompt words &middot; 134 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>We added proportional closed loop control. how do we tune kp for the fan to drive the arm to a specified angle? Sometimes it bounces and sometimes its not strong enough to reach the desired angle (~10 deg lower).</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Both symptoms are limits of P-only control, so no single Kp fixes both. The arm needs a nonzero holding duty against gravity, so P settles where <code>error_ss = u_hold / Kp</code> (can be checked by finding the holding duty with <code>p</code>). Raising Kp shrinks that error, but the arm is a lightly damped pendulum with fan lag, so it overshoots and oscillates, and the <code>u &lt; 0</code> clamp lets it free-fall on overshoot. Tuning procedure: raise Kp to sustained oscillation and use about half; add D from the gyro rate to damp it (lets Kp go higher); then add I with anti-windup, or a feedforward holding duty <code>u_ff</code>, to remove the offset. Watch the duty readout: swinging 0↔6000 means the gain is too high, pinned at 6000 means the fan can't reach the angle.</p><div class='lab'>Code (suggested, not applied): PID + feedforward sketch for the ISR (Kd, Ki, <code>u_ff</code>, clamped <code>error_integral</code>, <code>d = Kd * gyro[1]</code> subtracted).</div></div><div class='entry'><h4>B.15 &nbsp;Add derivative control <span class='meta'>2026-10-22 &middot; 23 prompt words &middot; 104 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>can you add derivative control? also make sure to comment the sections you are changing and add the change log to the markdowns.</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Added a D term to the ISR controller, using the gyro y rate directly (d(error)/dt = −gyro[1] because the target is constant), which avoids the noise of differencing the angle estimate, as recommended in lecture. The control law is now <code>u = Kp*error − Kd*gyro[1]</code>, still clamped to 0..6000. Added a <code>d</code> serial command (0–6000) to set Kd, which defaults to 0 so behaviour is unchanged until it is set, and added Kd to the VGA readout. Marked the changes with <code>ADDED</code> / <code>CHANGED</code> comments, added an implementation change log section to <code>pid_lecture_breakdown.md</code>, and logged the previous (tuning) prompt as entry 14. Builds cleanly.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// Globals
+volatile fix15 Kd = int2fix15(0) ;              // gain (duty counts per deg/s, 15.16), 0 = off
+
+// ISR controller
+angle_error = desired_angle - complementary_angle ;
+long long p_term = ((long long)Kp) * ((long long)angle_error) ;
+long long d_term = ((long long)Kd) * ((long long)gyro[1]) ;
+int u = (int)((p_term - d_term) &gt;&gt; 32) ;   // CHANGED: was Kp * error only
+if (u &lt; 0) u = 0 ;
+if (u &gt; WRAPVAL) u = WRAPVAL ;
+control = u ;
+
+// Draw thread readout
+sprintf(screentext, &quot;Target: %6.1f  Kp: %6.1f  Kd: %6.1f  Duty: %4d  %s&quot;,
+    fix2float15(desired_angle), fix2float15(Kp), fix2float15(Kd), control, closed_loop ? &quot;CLOSED LOOP&quot; : &quot;MANUAL&quot;) ;
+
+// Serial thread
+else if (classifier==&#x27;d&#x27;) { /* read float -&gt; Kd (0..6000) */ }</pre></div><div class='entry'><h4>B.16 &nbsp;Clamp the duty cycle to 4500 <span class='meta'>2026-10-22 &middot; 9 prompt words &middot; 39 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>can you clamp the duty cycle to max 4500</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Added <code>#define DUTY_MAX 4500</code>. The closed-loop clamp now limits <code>u</code> to <code>DUTY_MAX</code> instead of <code>WRAPVAL</code> (6000), and the manual <code>p</code> command only accepts 0–4500. The PWM period (<code>WRAPVAL</code> = 6000) is unchanged, so 4500 is 75% duty. Builds cleanly.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>#define DUTY_MAX 4500
+
+// ISR controller
+if (u &gt; DUTY_MAX) u = DUTY_MAX ;   // CHANGED: was WRAPVAL (6000)
+
+// Serial &#x27;p&#x27; command
+sprintf(pt_serial_out_buffer, &quot;duty cycle (0-%d): &quot;, DUTY_MAX);
+if (test_in &gt;= 0 &amp;&amp; test_in &lt;= DUTY_MAX) {</pre></div><div class='entry'><h4>B.17 &nbsp;Add integral control <span class='meta'>2026-10-22 &middot; 6 prompt words &middot; 147 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>Now can you add integral control</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Added an I term to the ISR controller, making it a full PID: <code>u = Kp*error − Kd*gyro[1] + i_term</code>, clamped to 0..<code>DUTY_MAX</code>. Every 1 ms sample the controller accumulates <code>Ki*error</code> (rather than the raw error), so the sum is already in duty counts. That means it can't overflow 15.16 fixed point, and changing Ki doesn't make the output jump. Anti-windup: <code>i_term</code> is capped at <code>i_max</code> (default 3000; the lecture says to set it a little above the duty that holds the arm at the target) and floored at 0, because the fan can't pull down. The integrator resets to 0 whenever closed loop is off (including after <code>p</code> or <code>c 0</code>). New serial commands: <code>i</code> sets Ki (default 0 = off, suggested start ~0.03) and <code>m</code> sets <code>i_max</code> (0–<code>DUTY_MAX</code>). Added a second VGA readout line showing Ki, I max and the live I term. Builds cleanly.</p><div class='lab'>Code (imu_demo.c):</div><pre class='logcode'>// Globals
+volatile fix15 Ki = int2fix15(0) ;
+volatile int i_max = 3000 ;
+volatile fix15 i_term = 0 ;
+
+// ISR controller
+i_term += multfix15(Ki, angle_error) ;
+if (i_term &gt; int2fix15(i_max)) i_term = int2fix15(i_max) ;
+if (i_term &lt; 0) i_term = 0 ;
+int u = (int)((p_term - d_term) &gt;&gt; 32) + fix2int15(i_term) ;
+...
+else {
+    i_term = 0 ;   // controller off -&gt; clear integrator
+}
+
+// Draw thread
+setCursor(85, 57) ;
+sprintf(screentext, &quot;Ki: %7.4f  I max: %4d  I term: %6.1f&quot;,
+    fix2float15(Ki), i_max, fix2float15(i_term)) ;
+writeString(screentext) ;
+
+// Serial thread
+else if (classifier==&#x27;i&#x27;) { /* read float -&gt; Ki (0..100) */ }
+else if (classifier==&#x27;m&#x27;) { /* read int -&gt; i_max (0..DUTY_MAX) */ }</pre></div><div class='entry'><h4>B.18 &nbsp;Tuning PID for fast response <span class='meta'>2026-10-22 &middot; 20 prompt words &middot; 189 response words</span></h4><div class='lab'>Our prompt (verbatim)</div><blockquote>If we want the arm to be very fast response to angle changes, how should we tune the pid parameters</blockquote><div class='lab'>Claude's response (Claude Opus 5.5, Claude Code)</div><p>Speed comes from Kp, and Kd is what lets Kp go high without bouncing. Aim for slight overshoot (about 5–10%), which settles faster than a fully damped response. Procedure, using step tests (e.g. target 0 → 30°): raise Kp until it overshoots, raise Kd until the overshoot is damped, and repeat. Stop when either (a) the duty slams between 0 and <code>DUTY_MAX</code> during a step, which means the actuator is saturated and more gain won't help, or (b) the fan chatters at rest, which means Kd is amplifying gyro noise (a low-pass filter on gyro[1] would help). Add Ki last and keep it small. I is slow and winds up during large steps, which causes overshoot, so keep <code>i_max</code> tight (holding duty + margin). Physical limits: the rise is limited by <code>DUTY_MAX</code> (4500) and the fall by gravity, because the fan can't pull down, so the response is asymmetric. Options for more speed: feedforward of the holding duty, so P doesn't have to do that job; integrating only when the error is small (conditional integration); raising <code>DUTY_MAX</code>. Use <code>t</code> to slow the plot scroll and see the step response.</p><div class='lab'>Code: none.</div></div>
+</body></html>
